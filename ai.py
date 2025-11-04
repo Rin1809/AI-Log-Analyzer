@@ -18,7 +18,7 @@ import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 import glob
 
-# --- giá trị mặc định/fallback ---
+# --- cái giá trị mặc định/fallback) ---
 CONFIG_FILE = "config.ini"
 PROMPT_TEMPLATE_FILE = "prompt_template.md"
 SUMMARY_PROMPT_TEMPLATE_FILE = "summary_prompt_template.md"
@@ -30,7 +30,7 @@ LOGO_FILE = "logo_novaon.png"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-# --- Các hàm quản lý trạng thá
+# --- Các hàm quản lý trạng thái
 def get_last_run_timestamp(firewall_id):
     """Đọc timestamp từ file state dành riêng cho một firewall."""
     state_file = f".last_run_timestamp_{firewall_id}"
@@ -45,6 +45,23 @@ def get_last_run_timestamp(firewall_id):
 def save_last_run_timestamp(timestamp, firewall_id):
     """Lưu timestamp vào file state dành riêng cho một firewall."""
     state_file = f".last_run_timestamp_{firewall_id}"
+    with open(state_file, 'w') as f:
+        f.write(timestamp.isoformat())
+        
+def get_last_cycle_run_timestamp(firewall_id):
+    """Doc timestamp cua lan chay chu ky phan tich cuoi cung."""
+    state_file = f".last_cycle_run_{firewall_id}"
+    if os.path.exists(state_file):
+        with open(state_file, 'r') as f:
+            try:
+                return datetime.fromisoformat(f.read().strip())
+            except ValueError:
+                return None
+    return None
+
+def save_last_cycle_run_timestamp(timestamp, firewall_id):
+    """Luu timestamp cua lan chay chu ky phan tich."""
+    state_file = f".last_cycle_run_{firewall_id}"
     with open(state_file, 'w') as f:
         f.write(timestamp.isoformat())
 
@@ -252,7 +269,7 @@ def read_bonus_context_files(config, firewall_section):
     standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
                      'reportdirectory', 'recipientemails', 'summary_enabled', 
                      'reports_per_summary', 'summary_recipient_emails',
-                     'prompt_file', 'summary_prompt_file']
+                     'prompt_file', 'summary_prompt_file', 'run_interval_seconds']
     context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
 
     if not context_keys:
@@ -356,7 +373,7 @@ def run_analysis_cycle(config, firewall_section):
         
         attachments_to_send = []
         if config.getboolean('Attachments', 'AttachContextFiles', fallback=False):
-            standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 'recipientemails', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 'prompt_file', 'summary_prompt_file']
+            standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 'recipientemails', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 'prompt_file', 'summary_prompt_file', 'run_interval_seconds']
             context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
             attachments_to_send = [config.get(firewall_section, key) for key in context_keys]
 
@@ -450,6 +467,11 @@ def run_summary_analysis_cycle(config, firewall_section):
 
 
 def main():
+    """
+    Vong lap chinh cua chuong trinh.
+    Script se thuc day dinh ky (theo SchedulerCheckIntervalSeconds),
+    quet qua tat ca cac firewall va kiem tra xem da den lich chay cua firewall nao chua.
+    """
     while True:
         config = configparser.ConfigParser(interpolation=None)
         if not os.path.exists(CONFIG_FILE):
@@ -458,39 +480,63 @@ def main():
         config.read(CONFIG_FILE)
 
         firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-        if not firewall_sections:
-            logging.warning("Không tìm thấy section firewall nào (ví dụ: [Firewall_...]) trong config.ini. Sẽ không có gì được thực thi.")
-        else:
-            logging.info(f"Phát hiện {len(firewall_sections)} firewall để xử lý: {firewall_sections}")
-
-        for section in firewall_sections:
-            logging.info(f"--- BẮT ĐẦU XỬ LÝ CHO FIREWALL: {section} ---")
-            try:
-                run_analysis_cycle(config, section)
-                
-                if config.getboolean(section, 'summary_enabled', fallback=False):
-                    reports_per_summary = config.getint(section, 'reports_per_summary')
-                    current_count = get_summary_count(section) + 1
-                    
-                    logging.info(f"[{section}] Đếm báo cáo tổng hợp: {current_count}/{reports_per_summary}")
-                    
-                    if current_count >= reports_per_summary:
-                        logging.info(f"[{section}] Đạt ngưỡng, bắt đầu tạo báo cáo tổng hợp.")
-                        run_summary_analysis_cycle(config, section)
-                        save_summary_count(0, section)
-                    else:
-                        save_summary_count(current_count, section)
-                else:
-                    if os.path.exists(f".summary_report_count_{section}"):
-                        save_summary_count(0, section)
-
-            except Exception as e:
-                logging.error(f"Lỗi nghiêm trọng khi xử lý firewall '{section}': {e}", exc_info=True)
-            logging.info(f"--- KẾT THÚC XỬ LÝ CHO FIREWALL: {section} ---")
         
-        interval_seconds = config.getint('System', 'RunIntervalSeconds', fallback=3600)
-        logging.info(f"Tất cả các firewall đã được xử lý. Chu kỳ tiếp theo sẽ bắt đầu sau {interval_seconds} giây.")
-        time.sleep(interval_seconds)
+        if not firewall_sections:
+            logging.warning("Không tìm thấy section firewall nào (ví dụ: [Firewall_...]) trong config.ini.")
+        else:
+            now = datetime.now()
+            logging.info(f"Scheduler: Thức dậy lúc {now.strftime('%Y-%m-%d %H:%M:%S')} để kiểm tra lịch.")
+
+            for section in firewall_sections:
+                run_interval = config.getint(section, 'run_interval_seconds', fallback=3600)
+                last_run_time = get_last_cycle_run_timestamp(section)
+
+                should_run = False
+                if last_run_time is None:
+                    # Chua chay lan nao -> Chay lien
+                    logging.info(f"[{section}] Chưa có lịch sử chạy, sẽ thực thi lần đầu.")
+                    should_run = True
+                else:
+                    elapsed_seconds = (now - last_run_time).total_seconds()
+                    if elapsed_seconds >= run_interval:
+                        logging.info(f"[{section}] Đã đến lịch chạy (đã qua {int(elapsed_seconds)}/{run_interval} giây).")
+                        should_run = True
+                    else:
+                        # logging.info(f"[{section}] Chưa đến lịch chạy, bỏ qua (đã qua {int(elapsed_seconds)}/{run_interval} giây).")
+                        pass
+
+                if should_run:
+                    logging.info(f"--- BẮT ĐẦU XỬ LÝ CHO FIREWALL: {section} ---")
+                    try:
+                        run_analysis_cycle(config, section)
+                        
+                        if config.getboolean(section, 'summary_enabled', fallback=False):
+                            reports_per_summary = config.getint(section, 'reports_per_summary')
+                            current_count = get_summary_count(section) + 1
+                            
+                            logging.info(f"[{section}] Đếm báo cáo tổng hợp: {current_count}/{reports_per_summary}")
+                            
+                            if current_count >= reports_per_summary:
+                                logging.info(f"[{section}] Đạt ngưỡng, bắt đầu tạo báo cáo tổng hợp.")
+                                run_summary_analysis_cycle(config, section)
+                                save_summary_count(0, section)
+                            else:
+                                save_summary_count(current_count, section)
+                        else:
+                            if os.path.exists(f".summary_report_count_{section}"):
+                                save_summary_count(0, section)
+                        
+                        # Ghi lai thoi gian chay thanh cong
+                        save_last_cycle_run_timestamp(now, section)
+
+                    except Exception as e:
+                        logging.error(f"Lỗi nghiêm trọng khi xử lý firewall '{section}': {e}", exc_info=True)
+                    
+                    logging.info(f"--- KẾT THÚC XỬ LÝ CHO FIREWALL: {section} ---")
+
+        check_interval = config.getint('System', 'SchedulerCheckIntervalSeconds', fallback=60)
+        logging.info(f"Scheduler: Đã kiểm tra xong. Sẽ ngủ trong {check_interval} giây.")
+        time.sleep(check_interval)
 
 if __name__ == "__main__":
     main()
