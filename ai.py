@@ -142,7 +142,7 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
     try:
         logging.info(f"[{firewall_id}] Gửi yêu cầu đến Gemini (prompt: {prompt_file}, timeout 180 giây)...")
         model = genai.GenerativeModel('gemini-2.5-flash')
-        request_options = {"timeout": 180}
+        request_options = {"timeout": 360}
         response = model.generate_content(prompt, request_options=request_options)
         logging.info(f"[{firewall_id}] Nhận phân tích từ Gemini thành công.")
         return response.text
@@ -168,7 +168,7 @@ def send_email(firewall_id, subject, body_html, config, recipient_emails_str, at
 
     msg_related = MIMEMultipart('related')
     
-    network_diagram_path = config.get('Attachments', 'NetworkDiagram', fallback=None)
+    network_diagram_path = config.get(firewall_id, 'NetworkDiagram', fallback=None)
     if network_diagram_path and os.path.exists(network_diagram_path):
         body_html = body_html.replace('style="display: none;"', '')
     
@@ -223,7 +223,7 @@ def read_bonus_context_files(config, firewall_section):
     """Đọc tất cả các file bối cảnh được định nghĩa trong section của firewall."""
     context_parts = []
     
-    standard_keys = ['pfsensehostname', 'logfile', 'hourstoanalyze', 'timezone', 
+    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
                      'reportdirectory', 'recipientemails', 'summary_enabled', 
                      'reports_per_summary', 'summary_recipient_emails',
                      'prompt_file', 'summary_prompt_file']
@@ -277,7 +277,7 @@ def run_analysis_cycle(config, firewall_section):
     
     log_file = config.get(firewall_section, 'LogFile')
     hours = config.getint(firewall_section, 'HoursToAnalyze')
-    hostname = config.get(firewall_section, 'PFSenseHostname')
+    hostname = config.get(firewall_section, 'SysHostname')
     timezone = config.get(firewall_section, 'TimeZone')
     report_dir = config.get(firewall_section, 'ReportDirectory')
     recipient_emails = config.get(firewall_section, 'RecipientEmails')
@@ -332,7 +332,7 @@ def run_analysis_cycle(config, firewall_section):
         
         attachments_to_send = []
         if config.getboolean('Attachments', 'AttachContextFiles', fallback=False):
-            standard_keys = ['pfsensehostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 'recipientemails', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 'prompt_file', 'summary_prompt_file']
+            standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 'recipientemails', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 'prompt_file', 'summary_prompt_file']
             context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
             attachments_to_send = [config.get(firewall_section, key) for key in context_keys]
 
@@ -349,7 +349,7 @@ def run_summary_analysis_cycle(config, firewall_section):
     reports_per_summary = config.getint(firewall_section, 'reports_per_summary')
     report_dir = config.get(firewall_section, 'ReportDirectory')
     timezone = config.get(firewall_section, 'TimeZone')
-    hostname = config.get(firewall_section, 'PFSenseHostname')
+    hostname = config.get(firewall_section, 'SysHostname')
     recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
     gemini_api_key = config.get('Gemini', 'APIKey')
 
