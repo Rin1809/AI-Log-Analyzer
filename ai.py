@@ -18,7 +18,7 @@ import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 import glob
 
-# --- Khai báo hằng số (Dùng làm giá trị mặc định/fallback) ---
+# --- giá trị mặc định/fallback ---
 CONFIG_FILE = "config.ini"
 PROMPT_TEMPLATE_FILE = "prompt_template.md"
 SUMMARY_PROMPT_TEMPLATE_FILE = "summary_prompt_template.md"
@@ -132,20 +132,48 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
 
     genai.configure(api_key=api_key)
     
-    # Logic để xác định cách format prompt dựa trên tên file
     is_summary_prompt = 'summary' in os.path.basename(prompt_file).lower()
     if is_summary_prompt:
         prompt = prompt_template.format(reports_content=content, bonus_context=bonus_context)
     else:
         prompt = prompt_template.format(logs_content=content, bonus_context=bonus_context)
 
+    # safety filter cua gemini
+    safety_settings = {
+        'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
+        'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
+        'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
+        'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'
+    }
+    
     try:
-        logging.info(f"[{firewall_id}] Gửi yêu cầu đến Gemini (prompt: {prompt_file}, timeout 180 giây)...")
+        logging.info(f"[{firewall_id}] Gửi yêu cầu đến Gemini (prompt: {prompt_file}, timeout 360 giây)...")
         model = genai.GenerativeModel('gemini-2.5-flash')
         request_options = {"timeout": 360}
-        response = model.generate_content(prompt, request_options=request_options)
+        
+        response = model.generate_content(
+            prompt,
+            request_options=request_options,
+            safety_settings=safety_settings
+        )
+
+        # check response an toan truoc khi truy cap .text
+        if not response.parts:
+            finish_reason = "UNKNOWN"
+            if response.candidates and response.candidates[0].finish_reason:
+                finish_reason = response.candidates[0].finish_reason.name
+            
+            safety_ratings_info = "N/A"
+            if response.candidates and response.candidates[0].safety_ratings:
+                safety_ratings_info = ", ".join([f"{rating.category.name}: {rating.probability.name}" for rating in response.candidates[0].safety_ratings])
+
+            error_message = f"Không thể nhận phân tích từ Gemini. Lý do: Phản hồi bị chặn hoặc trống. (Finish Reason: {finish_reason}, Safety Ratings: {safety_ratings_info})"
+            logging.error(f"[{firewall_id}] {error_message}")
+            return error_message
+
         logging.info(f"[{firewall_id}] Nhận phân tích từ Gemini thành công.")
         return response.text
+
     except google_exceptions.DeadlineExceeded:
         logging.error(f"[{firewall_id}] Lỗi: Yêu cầu đến Gemini bị hết thời gian chờ (timeout).")
         return "Không thể nhận phân tích từ Gemini do hết thời gian chờ."
@@ -174,7 +202,6 @@ def send_email(firewall_id, subject, body_html, config, recipient_emails_str, at
     
     msg_related.attach(MIMEText(body_html, 'html'))
     
-    # Nhúng logo và sơ đồ mạng
     try:
         with open(LOGO_FILE, 'rb') as f:
             img_logo = MIMEImage(f.read())
@@ -208,7 +235,6 @@ def send_email(firewall_id, subject, body_html, config, recipient_emails_str, at
             else:
                 logging.warning(f"[{firewall_id}] File đính kèm '{file_path}' không tồn tại.")
 
-    # Gửi email
     try:
         server = smtplib.SMTP(config.get('Email', 'SMTPServer'), config.getint('Email', 'SMTPPort'))
         server.starttls()
@@ -282,7 +308,6 @@ def run_analysis_cycle(config, firewall_section):
     report_dir = config.get(firewall_section, 'ReportDirectory')
     recipient_emails = config.get(firewall_section, 'RecipientEmails')
     
-    # Lấy đường dẫn prompt từ config, nếu không có thì dùng mặc định 
     prompt_file = config.get(firewall_section, 'prompt_file', fallback=PROMPT_TEMPLATE_FILE)
     
     gemini_api_key = config.get('Gemini', 'APIKey')
@@ -297,7 +322,6 @@ def run_analysis_cycle(config, firewall_section):
         return
 
     bonus_context = read_bonus_context_files(config, firewall_section)
-    #Truyền đường dẫn prompt đã lấy được vào hàm phân tích
     analysis_raw = analyze_logs_with_gemini(firewall_section, logs_content, bonus_context, gemini_api_key, prompt_file)
 
     summary_data = {"total_blocked_events": "N/A", "top_blocked_source_ip": "N/A", "alerts_count": "N/A"}
@@ -353,7 +377,6 @@ def run_summary_analysis_cycle(config, firewall_section):
     recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
     gemini_api_key = config.get('Gemini', 'APIKey')
 
-    # Lấy đường dẫn summary prompt từ config
     summary_prompt_file = config.get(firewall_section, 'summary_prompt_file', fallback=SUMMARY_PROMPT_TEMPLATE_FILE)
 
     report_files_pattern = os.path.join(report_dir, "*", "*.json")
@@ -386,7 +409,6 @@ def run_summary_analysis_cycle(config, firewall_section):
 
     reports_content = "\n\n".join(combined_analysis)
     bonus_context = read_bonus_context_files(config, firewall_section)
-    # đường dẫn summary prompt 
     summary_raw = analyze_logs_with_gemini(firewall_section, reports_content, bonus_context, gemini_api_key, summary_prompt_file)
 
     summary_data = {"total_blocked_events_period": "N/A", "most_frequent_issue": "N/A", "total_alerts_period": "N/A"}
