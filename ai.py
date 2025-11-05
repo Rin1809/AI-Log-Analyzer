@@ -1,4 +1,4 @@
-#!/usr//bin/env python3
+#!/usr///bin/env python3
 
 import os
 import smtplib
@@ -166,15 +166,18 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
 
     genai.configure(api_key=api_key)
 
-    # --- FIX: Thay doi logic format prompt ---
-    is_summary_prompt = 'summary' in os.path.basename(prompt_file).lower()
-    if is_summary_prompt:
-        # Neu la prompt tong hop, chi format voi 'reports_content'
-        prompt = prompt_template.format(reports_content=content, bonus_context=bonus_context)
-    else:
-        # Neu la prompt dinh ky, chi format voi 'logs_content'
-        prompt = prompt_template.format(logs_content=content, bonus_context=bonus_context)
-    # --- END FIX ---
+    prompt_filename = os.path.basename(prompt_file).lower()
+    is_summary_or_final = 'summary' in prompt_filename
+
+    try:
+        if is_summary_or_final:
+            prompt = prompt_template.format(reports_content=content, bonus_context=bonus_context)
+        else:
+            prompt = prompt_template.format(logs_content=content, bonus_context=bonus_context)
+    except KeyError as e:
+        logging.error(f"[{firewall_id}] Loi placeholder trong prompt '{prompt_file}'. Co the prompt dang mong doi placeholder khac. Chi tiet: {e}")
+        return f"Lỗi cấu hình: Placeholder không đúng trong file prompt '{prompt_file}'."
+
 
     # safety filter cua gemini
     safety_settings = {
@@ -186,8 +189,8 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
 
     try:
         logging.info(f"[{firewall_id}] Gui yeu cau den Gemini (prompt: {prompt_file}, timeout 360 giay)...")
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        request_options = {"timeout": 360}
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        request_options = {"timeout": 420}
 
         response = model.generate_content(
             prompt,
