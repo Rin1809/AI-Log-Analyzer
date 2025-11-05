@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr//bin/env python3
 
 import os
 import smtplib
@@ -22,10 +22,10 @@ import glob
 CONFIG_FILE = "config.ini"
 PROMPT_TEMPLATE_FILE = "prompt_template.md"
 SUMMARY_PROMPT_TEMPLATE_FILE = "summary_prompt_template.md"
-FINAL_SUMMARY_PROMPT_TEMPLATE_FILE = "final_summary_prompt_template.md" # moi
+FINAL_SUMMARY_PROMPT_TEMPLATE_FILE = "final_summary_prompt_template.md" 
 EMAIL_TEMPLATE_FILE = "email_template.html"
 SUMMARY_EMAIL_TEMPLATE_FILE = "summary_email_template.html"
-FINAL_SUMMARY_EMAIL_TEMPLATE_FILE = "final_summary_email_template.html" # moi
+FINAL_SUMMARY_EMAIL_TEMPLATE_FILE = "final_summary_email_template.html" 
 LOGO_FILE = "logo_novaon.png"
 
 
@@ -166,11 +166,15 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
 
     genai.configure(api_key=api_key)
 
+    # --- FIX: Thay doi logic format prompt ---
     is_summary_prompt = 'summary' in os.path.basename(prompt_file).lower()
     if is_summary_prompt:
+        # Neu la prompt tong hop, chi format voi 'reports_content'
         prompt = prompt_template.format(reports_content=content, bonus_context=bonus_context)
     else:
+        # Neu la prompt dinh ky, chi format voi 'logs_content'
         prompt = prompt_template.format(logs_content=content, bonus_context=bonus_context)
+    # --- END FIX ---
 
     # safety filter cua gemini
     safety_settings = {
@@ -182,7 +186,7 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
 
     try:
         logging.info(f"[{firewall_id}] Gui yeu cau den Gemini (prompt: {prompt_file}, timeout 360 giay)...")
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         request_options = {"timeout": 360}
 
         response = model.generate_content(
@@ -219,15 +223,12 @@ def send_email(firewall_id, subject, body_html, config, recipient_emails_str, at
     sender_email = config.get('Email', 'SenderEmail')
     sender_password = config.get('Email', 'SenderPassword')
     
-    # MODIFIED: Loc ra cac email hop le va loai bo khoang trang thua
     recipient_emails_list = [email.strip() for email in recipient_emails_str.split(',') if email and email.strip()]
 
-    # FIX: Kiem tra neu khong co nguoi nhan hop le thi dung lai
     if not recipient_emails_list:
         logging.error(f"[{firewall_id}] Khong co dia chi email nguoi nhan hop le nao duoc cau hinh. Huy gui email.")
         return
 
-    # Chuyen danh sach email tro lai thanh chuoi cho header 'To'
     recipient_emails_str_cleaned = ", ".join(recipient_emails_list)
     
     logging.info(f"[{firewall_id}] Chuan bi gui email den {recipient_emails_str_cleaned}...")
@@ -292,7 +293,6 @@ def read_bonus_context_files(config, firewall_section):
     """Doc tat ca cac file boi canh duoc dinh nghia trong section cua firewall."""
     context_parts = []
     
-    # danh sach key cau hinh, khong phai file boi canh
     standard_keys = [
         'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
         'reportdirectory', 'recipientemails', 'run_interval_seconds',
@@ -332,7 +332,6 @@ def save_structured_report(firewall_id, report_data, timezone_str, base_report_d
         date_folder = now.strftime('%Y-%m-%d')
         time_filename = now.strftime('%H-%M-%S') + '.json'
         
-        # xac dinh thu muc luu tru
         if report_level == 'final':
             report_folder_path = os.path.join(base_report_dir, "final", date_folder)
         elif report_level == 'summary':
@@ -434,11 +433,9 @@ def run_summary_analysis_cycle(config, firewall_section, api_key):
     recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
     summary_prompt_file = config.get(firewall_section, 'summary_prompt_file', fallback=SUMMARY_PROMPT_TEMPLATE_FILE)
 
-    # tim cac file bao cao dinh ky (khong nam trong /summary/ hoac /final/)
     report_files_pattern = os.path.join(report_dir, "*", "*.json")
     all_reports = sorted(glob.glob(report_files_pattern), key=os.path.getmtime, reverse=True)
     
-    # loc ra cac bao cao khong phai la summary/final
     periodic_reports = [r for r in all_reports if "summary" not in r and "final" not in r]
 
     reports_to_summarize = periodic_reports[:reports_per_summary]
@@ -506,7 +503,6 @@ def run_summary_analysis_cycle(config, firewall_section, api_key):
         logging.error(f"[{firewall_section}] Loi khi tao/gui email tong hop: {e}")
 
     logging.info(f"[{firewall_section}] Hoan tat chu ky TONG HOP.")
-    # tra ve True de kich hoat kiem tra final report
     return True
 
 def run_final_summary_analysis_cycle(config, firewall_section, api_key):
@@ -520,7 +516,6 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key):
     recipient_emails = config.get(firewall_section, 'final_summary_recipient_emails')
     final_prompt_file = config.get(firewall_section, 'final_summary_prompt_file', fallback=FINAL_SUMMARY_PROMPT_TEMPLATE_FILE)
 
-    # tim cac file bao cao TONG HOP
     summary_files_pattern = os.path.join(report_dir, "summary", "*", "*.json")
     all_summary_reports = sorted(glob.glob(summary_files_pattern), key=os.path.getmtime, reverse=True)
     
@@ -596,7 +591,6 @@ def main():
     Vong lap chinh cua chuong trinh.
     """
     while True:
-        # FIX: Khoi tao ConfigParser voi trinh xu ly chu thich noi dong
         config = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=';')
         
         if not os.path.exists(CONFIG_FILE):
@@ -629,16 +623,13 @@ def main():
                 if should_run:
                     logging.info(f"--- BAT DAU XU LY CHO FIREWALL: {section} ---")
                     try:
-                        # doc api key rieng cho firewall nay
                         gemini_api_key = config.get(section, 'GeminiAPIKey', fallback=None)
                         if not gemini_api_key or "YOUR_API_KEY" in gemini_api_key:
                             logging.error(f"[{section}] Loi: 'GeminiAPIKey' chua duoc thiet lap cho firewall nay. Bo qua.")
                             continue
 
-                        # --- Chay bao cao dinh ky ---
                         run_analysis_cycle(config, section, gemini_api_key)
                         
-                        # --- Kiem tra va chay bao cao tong hop ---
                         if config.getboolean(section, 'summary_enabled', fallback=False):
                             reports_per_summary = config.getint(section, 'reports_per_summary')
                             current_count = get_summary_count(section) + 1
@@ -650,7 +641,6 @@ def main():
                                 summary_success = run_summary_analysis_cycle(config, section, gemini_api_key)
                                 save_summary_count(0, section)
                                 
-                                # --- Kiem tra va chay bao cao FINAL (chi khi bao cao tong hop vua chay xong) ---
                                 if summary_success and config.getboolean(section, 'final_summary_enabled', fallback=False):
                                     summaries_per_final = config.getint(section, 'summaries_per_final_report')
                                     final_current_count = get_final_summary_count(section) + 1
@@ -667,13 +657,11 @@ def main():
                             else:
                                 save_summary_count(current_count, section)
                         else:
-                            # reset dem neu summary bi tat
                             if os.path.exists(f".summary_report_count_{section}"):
                                 save_summary_count(0, section)
                             if os.path.exists(f".final_summary_report_count_{section}"):
                                 save_final_summary_count(0, section)
                         
-                        # Ghi lai thoi gian chay thanh cong
                         save_last_cycle_run_timestamp(now, section)
 
                     except Exception as e:
