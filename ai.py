@@ -22,10 +22,10 @@ import glob
 CONFIG_FILE = "config.ini"
 PROMPT_TEMPLATE_FILE = "prompt_template.md"
 SUMMARY_PROMPT_TEMPLATE_FILE = "summary_prompt_template.md"
-FINAL_SUMMARY_PROMPT_TEMPLATE_FILE = "final_summary_prompt_template.md" 
+FINAL_SUMMARY_PROMPT_TEMPLATE_FILE = "final_summary_prompt_template.md"
 EMAIL_TEMPLATE_FILE = "email_template.html"
 SUMMARY_EMAIL_TEMPLATE_FILE = "summary_email_template.html"
-FINAL_SUMMARY_EMAIL_TEMPLATE_FILE = "final_summary_email_template.html" 
+FINAL_SUMMARY_EMAIL_TEMPLATE_FILE = "final_summary_email_template.html"
 LOGO_FILE = "logo_novaon.png"
 
 
