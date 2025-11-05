@@ -54,6 +54,6 @@ Sau đó, tạo một báo cáo chi tiết bằng tiếng Việt, sử dụng Ma
 
 *   Tuyệt đối không được nhắc đến suricata
 
---- DỮ LIỆU LOG CẦN PHÂN TÍCH ---
-{logs_content}
---- KẾT THÚC DỮ LIỆU LOG ---
+--- DỮ LIỆU TỔNG HỢP TỪ CÁC BÁO CÁO ---
+{reports_content}
+--- KẾT THÚC DỮ LIỆU TỔNG HỢP ---
