@@ -577,7 +577,7 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key):
     }
     save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='final')
 
-    email_subject = f"Báo cáo CHIẾN LƯỢC Hệ thống pfSense [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
+    email_subject = f"Báo cáo Hệ thống [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
     try:
         with open(FINAL_SUMMARY_EMAIL_TEMPLATE_FILE, 'r', encoding='utf-8') as f: email_template = f.read()
         analysis_html = markdown.markdown(analysis_markdown)
