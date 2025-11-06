@@ -1,4 +1,4 @@
-#!/usr///bin/env python3
+#!/usr/bin/env python3
 
 import os
 import smtplib
@@ -151,7 +151,7 @@ def read_new_log_entries(file_path, hours, timezone_str, firewall_id):
         logging.error(f"[{firewall_id}] Loi khong mong muon khi doc file: {e}")
         return (None, None, None)
 
-def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, prompt_file):
+def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, prompt_file, model_name):
     """Gui yeu cau phan tich toi Gemini."""
     if not content or not content.strip():
         logging.warning(f"[{firewall_id}] Noi dung trong, bo qua phan tich.")
@@ -188,8 +188,9 @@ def analyze_logs_with_gemini(firewall_id, content, bonus_context, api_key, promp
     }
 
     try:
-        logging.info(f"[{firewall_id}] Gui yeu cau den Gemini (prompt: {prompt_file}, timeout 360 giay)...")
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        logging.info(f"[{firewall_id}] Su dung Gemini model: '{model_name}'")
+        logging.info(f"[{firewall_id}] Gui yeu cau den Gemini (prompt: {prompt_file}, timeout 420 giay)...")
+        model = genai.GenerativeModel(model_name)
         request_options = {"timeout": 420}
 
         response = model.generate_content(
@@ -296,6 +297,7 @@ def read_bonus_context_files(config, firewall_section):
     """Doc tat ca cac file boi canh duoc dinh nghia trong section cua firewall."""
     context_parts = []
     
+    # define standard keys to exclude them from context file keys
     standard_keys = [
         'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
         'reportdirectory', 'recipientemails', 'run_interval_seconds',
@@ -303,7 +305,8 @@ def read_bonus_context_files(config, firewall_section):
         'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
         'prompt_file', 'summary_prompt_file',
         'final_summary_enabled', 'summaries_per_final_report', 'final_summary_recipient_emails',
-        'final_summary_prompt_file'
+        'final_summary_prompt_file',
+        'gemini_model', 'summary_gemini_model', 'final_summary_model' # them model keys vao
     ]
     context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
 
@@ -366,6 +369,7 @@ def run_analysis_cycle(config, firewall_section, api_key):
     report_dir = config.get(firewall_section, 'ReportDirectory')
     recipient_emails = config.get(firewall_section, 'RecipientEmails')
     prompt_file = config.get(firewall_section, 'prompt_file', fallback=PROMPT_TEMPLATE_FILE)
+    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-1.5-flash') # get model
 
     logs_content, start_time, end_time = read_new_log_entries(log_file, hours, timezone, firewall_section)
     if logs_content is None:
@@ -373,7 +377,7 @@ def run_analysis_cycle(config, firewall_section, api_key):
         return
 
     bonus_context = read_bonus_context_files(config, firewall_section)
-    analysis_raw = analyze_logs_with_gemini(firewall_section, logs_content, bonus_context, api_key, prompt_file)
+    analysis_raw = analyze_logs_with_gemini(firewall_section, logs_content, bonus_context, api_key, prompt_file, model_name) # pass model
 
     summary_data = {"total_blocked_events": "N/A", "top_blocked_source_ip": "N/A", "alerts_count": "N/A"}
     analysis_markdown = analysis_raw
@@ -414,7 +418,8 @@ def run_analysis_cycle(config, firewall_section, api_key):
                 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
                 'prompt_file', 'summary_prompt_file',
                 'final_summary_enabled', 'summaries_per_final_report', 'final_summary_recipient_emails',
-                'final_summary_prompt_file'
+                'final_summary_prompt_file',
+                'gemini_model', 'summary_gemini_model', 'final_summary_model'
             ]
             context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
             attachments_to_send = [config.get(firewall_section, key) for key in context_keys]
@@ -435,6 +440,7 @@ def run_summary_analysis_cycle(config, firewall_section, api_key):
     hostname = config.get(firewall_section, 'SysHostname')
     recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
     summary_prompt_file = config.get(firewall_section, 'summary_prompt_file', fallback=SUMMARY_PROMPT_TEMPLATE_FILE)
+    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-1.5-flash') # get model
 
     report_files_pattern = os.path.join(report_dir, "*", "*.json")
     all_reports = sorted(glob.glob(report_files_pattern), key=os.path.getmtime, reverse=True)
@@ -468,7 +474,7 @@ def run_summary_analysis_cycle(config, firewall_section, api_key):
 
     reports_content = "\n\n".join(combined_analysis)
     bonus_context = read_bonus_context_files(config, firewall_section)
-    summary_raw = analyze_logs_with_gemini(firewall_section, reports_content, bonus_context, api_key, summary_prompt_file)
+    summary_raw = analyze_logs_with_gemini(firewall_section, reports_content, bonus_context, api_key, summary_prompt_file, model_name) # pass model
 
     summary_data = {"total_blocked_events_period": "N/A", "most_frequent_issue": "N/A", "total_alerts_period": "N/A"}
     analysis_markdown = summary_raw
@@ -518,6 +524,7 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key):
     hostname = config.get(firewall_section, 'SysHostname')
     recipient_emails = config.get(firewall_section, 'final_summary_recipient_emails')
     final_prompt_file = config.get(firewall_section, 'final_summary_prompt_file', fallback=FINAL_SUMMARY_PROMPT_TEMPLATE_FILE)
+    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-1.5-pro') # get model
 
     summary_files_pattern = os.path.join(report_dir, "summary", "*", "*.json")
     all_summary_reports = sorted(glob.glob(summary_files_pattern), key=os.path.getmtime, reverse=True)
@@ -549,7 +556,7 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key):
 
     reports_content = "\n\n".join(combined_analysis)
     bonus_context = read_bonus_context_files(config, firewall_section)
-    final_raw = analyze_logs_with_gemini(firewall_section, reports_content, bonus_context, api_key, final_prompt_file)
+    final_raw = analyze_logs_with_gemini(firewall_section, reports_content, bonus_context, api_key, final_prompt_file, model_name) # pass model
 
     summary_data = {"overall_security_trend": "N/A", "key_strategic_recommendation": "N/A", "total_critical_events_final": "N/A"}
     analysis_markdown = final_raw
