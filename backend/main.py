@@ -72,7 +72,7 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
     }
     report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='periodic')
 
-    email_subject = f"Báo cáo Log pfSense [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d %H:%M')}"
+    email_subject = f"Báo cáo Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d %H:%M')}"
     try:
         with open(EMAIL_TEMPLATE_FILE, 'r', encoding='utf-8') as f: email_template = f.read()
         analysis_html = markdown.markdown(analysis_markdown)
@@ -176,7 +176,7 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, test_mode=Fals
     }
     report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='summary')
 
-    email_subject = f"Báo cáo TỔNG HỢP Log pfSense [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
+    email_subject = f"Báo cáo TỔNG HỢP Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
     try:
         with open(SUMMARY_EMAIL_TEMPLATE_FILE, 'r', encoding='utf-8') as f: email_template = f.read()
         analysis_html = markdown.markdown(analysis_markdown)

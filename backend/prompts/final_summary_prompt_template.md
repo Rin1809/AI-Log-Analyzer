@@ -44,7 +44,7 @@ Tạo một báo cáo tổng hợp bằng tiếng Việt, văn phong chuyên ngh
 
 5.  **Kiến nghị cho Giai đoạn Tiếp theo**:
     *   Đưa ra các đề xuất mang tính, có phân cấp ưu tiên.
-    *   **Tham khảo các nguồn uy tín:** Để các kiến nghị có tính cập nhật và phù hợp, **hãy sử dụng kiến thức của bạn về các phương pháp bảo mật tốt nhất (best practices) và các hướng dẫn cấu hình an toàn cho pfSense được công bố gần đây** từ các nguồn uy tín (ví dụ: CISA, SANS, Netgate blog).
+    *   **Tham khảo các nguồn uy tín:** Để các kiến nghị có tính cập nhật và phù hợp, **hãy sử dụng kiến thức của bạn về các phương pháp bảo mật tốt nhất (best practices) và các hướng dẫn cấu hình an toàn được công bố gần đây** từ các nguồn uy tín (ví dụ: CISA, SANS, Netgate blog).
     *   Phân loại kiến nghị:
         *   **Ưu tiên cao (Cần xử lý trong kỳ tới)**: Ví dụ: "Thực hiện rà soát và vá lỗ hổng cho các dịch vụ đang mở ra ngoài Internet", "Điều tra dứt điểm nguyên nhân gây lỗi DHCP".
         *   **Ưu tiên trung bình (Lên kế hoạch thực hiện)**: Ví dụ: "Triển khai phân đoạn mạng chi tiết hơn cho các thiết bị IoT", "Rà soát lại toàn bộ các quy tắc 'allow any' trên tường lửa".

@@ -10,29 +10,57 @@ import {
   Heading,
   useColorModeValue,
   VStack,
-  HStack,
   Text,
-  Icon,
-  Flex
+  Flex,
+  Center,
+  HStack,
 } from '@chakra-ui/react';
-import { CheckCircleIcon, WarningTwoIcon, CopyIcon } from '@chakra-ui/icons';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const POLLING_INTERVAL = 30000;
+const COLORS = ['#3182CE', '#805AD5', '#D69E2E', '#38A169', '#DD6B20', '#00A3C4'];
 
-const StatCard = ({ title, value, icon, color }) => {
+const ChartCard = ({ title, children }) => {
     const cardBg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
     return (
-        <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-            <HStack>
-                <Icon as={icon} w={8} h={8} color={color} />
-                <VStack align="start" spacing={0}>
-                    <Text fontSize="2xl" fontWeight="bold">{value}</Text>
-                    <Text fontSize="md" color="gray.500">{title}</Text>
-                </VStack>
-            </HStack>
+        <Box
+            p={5}
+            shadow="md"
+            borderWidth="1px"
+            borderColor={borderColor}
+            borderRadius="lg"
+            bg={cardBg}
+            h="350px"
+            transition="all 0.2s"
+            _hover={{ shadow: 'lg' }}
+        >
+            <Heading size="sm" mb={4} textAlign="center" fontWeight="semibold">
+                {title}
+            </Heading>
+            {children}
         </Box>
+    );
+};
+
+const CustomLegend = ({ payload }) => {
+    const textColor = useColorModeValue('gray.600', 'gray.300');
+
+    if (!payload || payload.length === 0) {
+        return null;
+    }
+
+    return (
+        <VStack align="start" justify="center" h="100%" spacing={3}>
+            {payload.map((entry, index) => (
+                <HStack key={`item-${index}`} spacing={3}>
+                    <Box boxSize="12px" borderRadius="full" bg={entry.color} />
+                    <Text fontSize="sm" color={textColor}>
+                        {entry.value} ({entry.payload.payload.value})
+                    </Text>
+                </HStack>
+            ))}
+        </VStack>
     );
 };
 
@@ -44,89 +72,25 @@ const MainDashboard = () => {
     const [error, setError] = useState('');
     const isInitialLoad = useRef(true);
 
-    const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F', '#FFBB28'];
-
-    const cardBg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
-
-    // // logic fix: chart lay danh sach host tu status, du lieu tu reports
-    const { chartData, hostKeys } = useMemo(() => {
-        // // nguon tin cay ve cac host can hien thi
-        const allHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
-
-        const periodicReports = reports.filter(r => r.type === 'periodic');
-        
-        if (periodicReports.length === 0 && allHostnames.length > 0) {
-            // // van hien thi chart trong, co ten host
-             const emptyData = [{ time: new Date().toLocaleString() }];
-             allHostnames.forEach(hostname => {
-                 emptyData[0][hostname] = 0;
-             });
-             return { chartData: emptyData, hostKeys: allHostnames };
-        }
-        
-        if (allHostnames.length === 0) {
-            return { chartData: [], hostKeys: [] };
-        }
-        
-        const dataMap = new Map();
-
-        periodicReports.forEach(report => {
-            const timestamp = new Date(report.generated_time).toLocaleString();
-            const hostname = report.hostname;
-            const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
-            
-            if (!dataMap.has(timestamp)) {
-                dataMap.set(timestamp, { time: timestamp });
-            }
-
-            const point = dataMap.get(timestamp);
-            point[hostname] = (point[hostname] || 0) + logCount;
-        });
-        
-        // // dam bao moi host deu co gia tri, ke ca khi khong co report
-        for (const point of dataMap.values()) {
-            allHostnames.forEach(key => {
-                if (point[key] === undefined) {
-                    point[key] = 0;
-                }
-            });
-        }
-        
-        const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
-        
-        return { chartData: sortedData, hostKeys: allHostnames };
-
-    }, [reports, statusData]);
-
-    const stats = useMemo(() => {
-        const activeHosts = statusData.filter(s => s.is_enabled).length;
-        const inactiveHosts = statusData.length - activeHosts;
-        return {
-            active: activeHosts,
-            inactive: inactiveHosts,
-            totalReports: reports.length
-        };
-    }, [statusData, reports]);
-
+    const lineChartColor = useColorModeValue('gray.800', 'white');
+    const gridStrokeColor = useColorModeValue('gray.200', 'gray.700');
+    const tooltipBgColor = useColorModeValue('white', 'gray.800');
+    const cardBg = useColorModeValue('white', 'gray.800');
 
     const fetchData = useCallback(async (testMode) => {
         if (isInitialLoad.current) {
             setLoading(true);
         }
         setError('');
-        
         try {
             const apiParams = { params: { test_mode: testMode } };
-            
             const [statusRes, reportsRes] = await Promise.all([
                 axios.get('/api/status', apiParams),
                 axios.get('/api/reports', apiParams)
             ]);
-            
             setStatusData(statusRes.data);
             setReports(reportsRes.data);
-
         } catch (err) {
             console.error(err);
             setError(`Failed to fetch dashboard data. Details: ${err.message}`);
@@ -145,47 +109,137 @@ const MainDashboard = () => {
         return () => clearInterval(intervalId);
     }, [fetchData, isTestMode]);
 
+    // --- Memoized data for charts ---
+    const hostStatusData = useMemo(() => {
+        const active = statusData.filter(s => s.is_enabled).length;
+        const inactive = statusData.length - active;
+        if (active === 0 && inactive === 0) return [];
+        return [
+            { name: 'Active', value: active },
+            { name: 'Inactive', value: inactive },
+        ];
+    }, [statusData]);
+
+    const reportTypeData = useMemo(() => {
+        if (reports.length === 0) return [];
+        const types = reports.reduce((acc, report) => {
+            acc[report.type] = (acc[report.type] || 0) + 1;
+            return acc;
+        }, {});
+        return Object.entries(types).map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }));
+    }, [reports]);
+
+    const reportsByHostData = useMemo(() => {
+        if (reports.length === 0) return [];
+        const hosts = reports.reduce((acc, report) => {
+            acc[report.hostname] = (acc[report.hostname] || 0) + 1;
+            return acc;
+        }, {});
+        return Object.entries(hosts).map(([name, value]) => ({ name, value }));
+    }, [reports]);
+
+    const lineChartData = useMemo(() => {
+        const allHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
+        const periodicReports = reports.filter(r => r.type === 'periodic');
+        if (allHostnames.length === 0) return { data: [], keys: [] };
+
+        const dataMap = new Map();
+        periodicReports.forEach(report => {
+            const timestamp = new Date(report.generated_time).toLocaleString();
+            const hostname = report.hostname;
+            const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
+            if (!dataMap.has(timestamp)) {
+                dataMap.set(timestamp, { time: timestamp });
+            }
+            const point = dataMap.get(timestamp);
+            point[hostname] = (point[hostname] || 0) + logCount;
+        });
+
+        for (const point of dataMap.values()) {
+            allHostnames.forEach(key => {
+                if (point[key] === undefined) point[key] = 0;
+            });
+        }
+
+        const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
+        return { data: sortedData.slice(-20), keys: allHostnames };
+    }, [reports, statusData]);
+
+    // --- Render logic ---
     if (loading) {
-        return <Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" />;
+        return <Center h="80vh"><Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" /></Center>;
     }
 
     if (error) {
         return <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>;
     }
 
+    const renderPieChart = (data) => {
+        if (!data || data.length === 0) {
+            return <Center h="100%"><Text color="gray.500">No data to display.</Text></Center>;
+        }
+
+        return (
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                    <Pie
+                        data={data}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        innerRadius="60%"
+                        outerRadius="80%"
+                        fill="#8884d8"
+                        paddingAngle={5}
+                        dataKey="value"
+                        nameKey="name"
+                    >
+                        {data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                    </Pie>
+                    <Legend
+                        content={CustomLegend}
+                        layout="vertical"
+                        verticalAlign="middle"
+                        align="right"
+                    />
+                </PieChart>
+            </ResponsiveContainer>
+        );
+    };
+
     return (
-        <VStack spacing={8} align="stretch">
-            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
-                <StatCard title="Active Hosts" value={stats.active} icon={CheckCircleIcon} color="green.500" />
-                <StatCard title="Inactive Hosts" value={stats.inactive} icon={WarningTwoIcon} color="red.500" />
-                <StatCard title="Total Reports" value={stats.totalReports} icon={CopyIcon} color="blue.500" />
+        <VStack spacing={6} align="stretch">
+            <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
+                <ChartCard title="Host Status">{renderPieChart(hostStatusData)}</ChartCard>
+                <ChartCard title="Report Types">{renderPieChart(reportTypeData)}</ChartCard>
+                <ChartCard title="Reports by Host">{renderPieChart(reportsByHostData)}</ChartCard>
             </SimpleGrid>
 
-            <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg} h="400px">
-                <Heading size="md" mb={4}>Total Logs Over Time</Heading>
-                {hostKeys.length > 0 ? (
+            <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
+                <Heading size="md" mb={4} fontWeight="semibold">Total Logs Over Time</Heading>
+                {lineChartData.data.length > 0 && lineChartData.keys.length > 0 ? (
                     <ResponsiveContainer width="100%" height="90%">
-                        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" tick={{ fontSize: 12 }} />
-                            <YAxis />
-                            <Tooltip />
+                        <LineChart data={lineChartData.data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridStrokeColor} />
+                            <XAxis dataKey="time" tick={{ fontSize: 12, fill: lineChartColor }} />
+                            <YAxis tick={{ fontSize: 12, fill: lineChartColor }} />
+                            <Tooltip
+                                contentStyle={{
+                                    backgroundColor: tooltipBgColor,
+                                    borderColor: borderColor
+                                }}
+                            />
                             <Legend />
-                            {hostKeys.map((key, index) => (
-                                <Line 
-                                  key={key} 
-                                  type="monotone" 
-                                  dataKey={key} 
-                                  name={`Logs: ${key}`} 
-                                  stroke={COLORS[index % COLORS.length]} 
-                                  strokeWidth={2} 
-                                  dot={false} />
+                            {lineChartData.keys.map((key, index) => (
+                                <Line key={key} type="monotone" dataKey={key} name={`${key}`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} />
                             ))}
                         </LineChart>
                     </ResponsiveContainer>
                 ) : (
-                    <Flex justify="center" align="center" h="100%">
-                        <Text>No active hosts found or no report data available.</Text>
+                    <Flex justify="center" align="center" h="100%" pb={10}>
+                        <Text color="gray.500">No periodic report data available to display chart.</Text>
                     </Flex>
                 )}
             </Box>

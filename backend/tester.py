@@ -82,7 +82,7 @@ def run_test_for_host(config, firewall_section, test_type):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Automation test script for pfsense-log-analyzer.")
+    parser = argparse.ArgumentParser(description="Automation test script for AI-log-analyzer.")
     parser.add_argument(
         "test_type", 
         choices=['periodic', 'summary', 'final', 'all'], 

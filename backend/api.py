@@ -22,8 +22,8 @@ LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
 app = FastAPI(
-    title="pfsense-log-analyzer API",
-    description="API để quản lý và giám sát tool phân tích log pfSense.",
+    title="AI-log-analyzer API",
+    description="API để quản lý và giám sát tool phân tích log.",
     version="2.3.0", # // version bump for log count feature
 )
 
