@@ -12,3 +12,5 @@ reports/
 .idea/
 .vscode/
 AI-agent/
+test_reports/
+test_assets/test_config.ini
