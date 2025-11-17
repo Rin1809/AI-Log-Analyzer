@@ -5,15 +5,16 @@ def read_bonus_context_files(config, firewall_section):
     """Doc tat ca cac file boi canh duoc dinh nghia trong section cua firewall."""
     context_parts = []
     
+    # // fix: Bo sung tat ca cac key cau hinh de tranh bi nham la file context
     standard_keys = [
         'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
         'reportdirectory', 'recipientemails', 'run_interval_seconds',
-        'geminiapikey', 'networkdiagram',
+        'geminiapikey', 'networkdiagram', 'enabled',
         'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
         'prompt_file', 'summary_prompt_file',
         'final_summary_enabled', 'summaries_per_final_report', 'final_summary_recipient_emails',
         'final_summary_prompt_file',
-        'gemini_model', 'summary_gemini_model', 'final_summary_model' # them model keys vao
+        'gemini_model', 'summary_gemini_model', 'final_summary_model'
     ]
     context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
 
@@ -22,6 +23,8 @@ def read_bonus_context_files(config, firewall_section):
 
     for key in context_keys:
         file_path = config.get(firewall_section, key).strip()
+        if not file_path: # Bo qua cac gia tri rong
+            continue
         if os.path.exists(file_path):
             try:
                 logging.info(f"[{firewall_section}] Dang doc file boi canh: '{file_path}'")

@@ -5,7 +5,7 @@ import configparser
 import logging
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -17,13 +17,14 @@ from modules import state_manager
 
 # --- config ---
 CONFIG_FILE = "config.ini"
+TEST_CONFIG_FILE = "test_assets/test_config.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
 app = FastAPI(
     title="pfsense-log-analyzer API",
     description="API để quản lý và giám sát tool phân tích log pfSense.",
-    version="1.0.0",
+    version="2.1.0", # // version bump for test mode feature
 )
 
 # // @todo: config CORS chặt hơn cho production
@@ -40,12 +41,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_config():
-    """Doc va tra ve config parser object."""
+def get_active_config_file(test_mode: bool) -> str:
+    """Tra ve duong dan file config active (prod hoac test)."""
+    return TEST_CONFIG_FILE if test_mode else CONFIG_FILE
+
+def get_config_parser(test_mode: bool = False) -> configparser.ConfigParser:
+    """Doc va tra ve config parser object tu file config tuong ung."""
+    config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
-    if not os.path.exists(CONFIG_FILE):
-        raise HTTPException(status_code=500, detail=f"Config file not found: {CONFIG_FILE}")
-    config.read(CONFIG_FILE)
+    if not os.path.exists(config_path):
+        raise HTTPException(status_code=500, detail=f"Config file not found: {config_path}")
+    config.read(config_path)
     return config
 
 # --- Pydantic Models ---
@@ -53,32 +59,37 @@ class FirewallStatus(BaseModel):
     id: str
     hostname: str
     status: str
+    is_enabled: bool
     last_run: str | None
     
 class ReportInfo(BaseModel):
     filename: str
     path: str
+    hostname: str
     type: str # 'periodic', 'summary', 'final'
     generated_time: str
 
+class ConfigUpdateRequest(BaseModel):
+    content: str
+
 # --- API Endpoints ---
 @app.get("/api/status", response_model=List[FirewallStatus])
-async def get_firewall_status():
-    """
-    Lay trang thai cua tat ca cac firewall duoc cau hinh.
-    """
+async def get_firewall_status(test_mode: bool = False):
+    """Lay trang thai cua tat ca cac firewall duoc cau hinh."""
     try:
-        config = get_config()
+        config = get_config_parser(test_mode)
         firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
         status_list = []
 
         for section in firewall_sections:
-            last_run_ts = state_manager.get_last_cycle_run_timestamp(section)
+            last_run_ts = state_manager.get_last_cycle_run_timestamp(section, test_mode)
+            is_enabled = config.getboolean(section, 'enabled', fallback=True)
             status_list.append(
                 FirewallStatus(
                     id=section,
                     hostname=config.get(section, 'SysHostname', fallback='N/A'),
-                    status="Online", # // logic don gian, neu doc dc config la online
+                    status="Online" if is_enabled else "Disabled",
+                    is_enabled=is_enabled,
                     last_run=last_run_ts.isoformat() if last_run_ts else "Never"
                 )
             )
@@ -88,27 +99,55 @@ async def get_firewall_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/reports", response_model=List[ReportInfo])
-async def get_all_reports():
-    """
-    Quet va tra ve danh sach tat ca cac file report da duoc tao.
-    """
+@app.post("/api/status/{firewall_id}/toggle", response_model=Dict[str, Any])
+async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
+    """Bat/tat mot firewall host."""
+    config = get_config_parser(test_mode)
+    if firewall_id not in config:
+        raise HTTPException(status_code=404, detail="Firewall ID not found")
+
     try:
-        config = get_config()
-        # // gia dinh report dir giong nhau cho moi firewall, lay cai dau tien
-        report_dir = config.get(config.sections()[0], 'ReportDirectory', fallback='test_reports')
+        current_state = config.getboolean(firewall_id, 'enabled', fallback=True)
+        config.set(firewall_id, 'enabled', str(not current_state))
+        
+        config_path = get_active_config_file(test_mode)
+        with open(config_path, 'w') as configfile:
+            config.write(configfile)
+        
+        return {"id": firewall_id, "new_status": "enabled" if not current_state else "disabled"}
+    except Exception as e:
+        logging.error(f"Error toggling status for {firewall_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update config file: {e}")
+
+
+@app.get("/api/reports", response_model=List[ReportInfo])
+async def get_all_reports(test_mode: bool = False):
+    """Quet va tra ve danh sach tat ca cac file report da duoc tao."""
+    try:
+        config = get_config_parser(test_mode)
+        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
+        if not firewall_sections:
+            return []
+        
+        # // logic nay an toan vi se luon co it nhat mot section neu list khong rong
+        report_dir = config.get(firewall_sections[0], 'ReportDirectory', fallback='test_reports')
 
         if not os.path.isdir(report_dir):
-            return [] # tra ve list rong neu thu muc ko ton tai
+            return []
 
         reports = []
-        # glob pattern to find all json files in the directory structure
-        report_files = glob.glob(os.path.join(report_dir, '**', '*.json'), recursive=True)
+        # // Pattern quet van nhu cu, vi report_dir da duoc lay tu file config dung
+        report_files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
         
-        # sap xep file moi nhat len dau
         report_files.sort(key=os.path.getmtime, reverse=True)
 
+        hostname_map = {fw_id: config.get(fw_id, 'SysHostname', fallback=fw_id) for fw_id in firewall_sections}
+
         for file_path in report_files:
+            parts = file_path.split(os.sep)
+            # // logic nay hoi mong manh, nhung van ok
+            firewall_id_from_path = parts[parts.index(report_dir.split(os.sep)[-1]) + 1]
+
             report_type = 'periodic'
             if 'summary' in file_path:
                 report_type = 'summary'
@@ -120,6 +159,7 @@ async def get_all_reports():
             reports.append(ReportInfo(
                 filename=os.path.basename(file_path),
                 path=file_path,
+                hostname=hostname_map.get(firewall_id_from_path, 'Unknown'),
                 type=report_type,
                 generated_time=gen_time.strftime('%Y-%m-%d %H:%M:%S')
             ))
@@ -128,18 +168,62 @@ async def get_all_reports():
         logging.error(f"Error getting reports: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/config/{firewall_id}", response_model=Dict[str, str])
+async def get_firewall_config(firewall_id: str, test_mode: bool = False):
+    """Lay noi dung config cua mot firewall."""
+    config = get_config_parser(test_mode)
+    if firewall_id not in config:
+        raise HTTPException(status_code=404, detail="Firewall ID not found")
+    
+    config_items = dict(config.items(firewall_id))
+    config_content = f"[{firewall_id}]\n"
+    for key, value in config_items.items():
+        config_content += f"{key} = {value}\n"
+        
+    return {"content": config_content}
+
+@app.post("/api/config/{firewall_id}", response_model=Dict[str, str])
+async def update_firewall_config(firewall_id: str, request: ConfigUpdateRequest, test_mode: bool = False):
+    """Cap nhat config cho mot firewall. Ten section se duoc giu nguyen."""
+    config = get_config_parser(test_mode)
+    if firewall_id not in config:
+        raise HTTPException(status_code=404, detail="Firewall ID not found")
+    
+    try:
+        temp_parser = configparser.ConfigParser(interpolation=None)
+        temp_parser.read_string(request.content)
+
+        if not temp_parser.sections():
+            raise configparser.ParsingError("No section found in submitted content")
+
+        temp_section_name = temp_parser.sections()[0]
+        
+        for key, value in temp_parser.items(temp_section_name):
+            config.set(firewall_id, key, value)
+            
+        config_path = get_active_config_file(test_mode)
+        with open(config_path, 'w') as configfile:
+            config.write(configfile)
+            
+        return {"status": "success", "message": f"Config for {firewall_id} updated."}
+    except Exception as e:
+        logging.error(f"Error updating config for {firewall_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to parse or save config: {e}")
+
 
 @app.get("/api/report-content", response_model=Dict[str, Any])
-async def get_report_content(path: str):
-    """
-    Doc va tra ve noi dung cua mot file report JSON.
-    """
-    # // Defensive coding: kiem tra path de tranh traversal attack
-    config = get_config()
-    report_dir = config.get(config.sections()[0], 'ReportDirectory', fallback='test_reports')
+async def get_report_content(path: str, test_mode: bool = False):
+    """Doc va tra ve noi dung cua mot file report JSON."""
+    config = get_config_parser(test_mode)
+    firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
+    if not firewall_sections:
+        raise HTTPException(status_code=500, detail="No firewalls configured.")
+
+    report_dir = config.get(firewall_sections[0], 'ReportDirectory', fallback='test_reports')
     safe_base_dir = os.path.abspath(report_dir)
     requested_path = os.path.abspath(path)
 
+    # // Defensive coding: check path
     if not requested_path.startswith(safe_base_dir):
         raise HTTPException(status_code=403, detail="Access denied: Invalid path.")
 
@@ -156,5 +240,4 @@ async def get_report_content(path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    # // Chay server, --reload de tu dong update khi code thay doi
     uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)

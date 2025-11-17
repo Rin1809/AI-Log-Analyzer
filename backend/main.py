@@ -43,7 +43,7 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
     report_dir = config.get(firewall_section, 'ReportDirectory')
     recipient_emails = config.get(firewall_section, 'RecipientEmails')
     prompt_file = config.get(firewall_section, 'prompt_file', fallback=PROMPT_TEMPLATE_FILE)
-    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-2.5-flash') 
+    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-1.5-flash') 
 
     logs_content, start_time, end_time = log_reader.read_new_log_entries(log_file, hours, timezone, firewall_section, test_mode)
     if logs_content is None:
@@ -85,10 +85,11 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
 
         attachments_to_send = []
         if config.getboolean('Attachments', 'AttachContextFiles', fallback=False):
+            # // fix: Bo sung tat ca cac key cau hinh de tranh bi nham la file context
             standard_keys = [
                 'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
                 'reportdirectory', 'recipientemails', 'run_interval_seconds',
-                'geminiapikey', 'networkdiagram',
+                'geminiapikey', 'networkdiagram', 'enabled',
                 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
                 'prompt_file', 'summary_prompt_file',
                 'final_summary_enabled', 'summaries_per_final_report', 'final_summary_recipient_emails',
@@ -96,7 +97,7 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
                 'gemini_model', 'summary_gemini_model', 'final_summary_model'
             ]
             context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
-            attachments_to_send = [config.get(firewall_section, key) for key in context_keys]
+            attachments_to_send = [config.get(firewall_section, key) for key in context_keys if config.get(firewall_section, key).strip()]
 
         email_service.send_email(firewall_section, email_subject, email_body, config, recipient_emails, attachment_paths=attachments_to_send)
     except Exception as e:
@@ -115,15 +116,14 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, test_mode=Fals
     hostname = config.get(firewall_section, 'SysHostname')
     recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
     summary_prompt_file = config.get(firewall_section, 'summary_prompt_file', fallback=SUMMARY_PROMPT_TEMPLATE_FILE)
-    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-1.5-flash') # get model
+    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-1.5-flash') 
 
-    report_files_pattern = os.path.join(report_dir, "*", "*.json")
-    all_reports = sorted(glob.glob(report_files_pattern), key=os.path.getmtime, reverse=True)
+    # // duong dan moi de quet report
+    host_report_dir = os.path.join(report_dir, firewall_section)
+    report_files_pattern = os.path.join(host_report_dir, "periodic", "*", "*.json") # fix: only scan periodic reports
+    all_reports = sorted(glob.glob(report_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
     
-    periodic_reports = [r for r in all_reports if "summary" not in r and "final" not in r]
-
-    # In test mode, we just need ANY available periodic reports to proceed
-    reports_to_summarize = periodic_reports[:reports_per_summary]
+    reports_to_summarize = all_reports[:reports_per_summary]
 
     if len(reports_to_summarize) < reports_per_summary and not test_mode:
         logging.warning(f"[{firewall_section}] Khong du bao cao ({len(reports_to_summarize)}/{reports_per_summary}) de tong hop. Cho chu ky sau.")
@@ -155,7 +155,7 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, test_mode=Fals
 
     reports_content = "\n\n".join(combined_analysis)
     bonus_context = context_loader.read_bonus_context_files(config, firewall_section)
-    summary_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, summary_prompt_file, model_name) # pass model
+    summary_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, summary_prompt_file, model_name)
 
     summary_data = {"total_blocked_events_period": "N/A", "most_frequent_issue": "N/A", "total_alerts_period": "N/A"}
     analysis_markdown = summary_raw
@@ -205,10 +205,12 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mod
     hostname = config.get(firewall_section, 'SysHostname')
     recipient_emails = config.get(firewall_section, 'final_summary_recipient_emails')
     final_prompt_file = config.get(firewall_section, 'final_summary_prompt_file', fallback=FINAL_SUMMARY_PROMPT_TEMPLATE_FILE)
-    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-1.5-pro') # get model
+    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-1.5-pro')
 
-    summary_files_pattern = os.path.join(report_dir, "summary", "*", "*.json")
-    all_summary_reports = sorted(glob.glob(summary_files_pattern), key=os.path.getmtime, reverse=True)
+    # // duong dan moi de quet report
+    host_report_dir = os.path.join(report_dir, firewall_section)
+    summary_files_pattern = os.path.join(host_report_dir, "summary", "*", "*.json")
+    all_summary_reports = sorted(glob.glob(summary_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
     
     reports_to_finalize = all_summary_reports[:summaries_per_final]
 
@@ -242,7 +244,7 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mod
 
     reports_content = "\n\n".join(combined_analysis)
     bonus_context = context_loader.read_bonus_context_files(config, firewall_section)
-    final_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, final_prompt_file, model_name) # pass model
+    final_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, final_prompt_file, model_name)
 
     summary_data = {"overall_security_trend": "N/A", "key_strategic_recommendation": "N/A", "total_critical_events_final": "N/A"}
     analysis_markdown = final_raw
@@ -283,18 +285,17 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mod
     return True
 
 def main():
-    """
-    Vong lap chinh cua chuong trinh.
-    """
+    """Vong lap chinh cua chuong trinh."""
     while True:
-        config = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=';')
+        # // config se duoc doc lai ben trong vong for
+        initial_config = configparser.ConfigParser(interpolation=None)
         
         if not os.path.exists(CONFIG_FILE):
             logging.error(f"Loi: File cau hinh '{CONFIG_FILE}' khong ton tai. Thoat.")
             return
-        config.read(CONFIG_FILE)
+        initial_config.read(CONFIG_FILE)
 
-        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
+        firewall_sections = [s for s in initial_config.sections() if s.startswith('Firewall_')]
         
         if not firewall_sections:
             logging.warning("Khong tim thay section firewall nao (vi du: [Firewall_...]) trong config.ini.")
@@ -303,6 +304,14 @@ def main():
             logging.info(f"Scheduler: Thuc day luc {now.strftime('%Y-%m-%d %H:%M:%S')} de kiem tra lich.")
 
             for section in firewall_sections:
+                # // tam fix: doc lai config moi lan de lay state moi nhat
+                config = configparser.ConfigParser(interpolation=None)
+                config.read(CONFIG_FILE)
+
+                if not config.getboolean(section, 'enabled', fallback=True):
+                    logging.info(f"[{section}] Host dang o trang thai 'disabled'. Bo qua.")
+                    continue
+
                 run_interval = config.getint(section, 'run_interval_seconds', fallback=3600)
                 last_run_time = state_manager.get_last_cycle_run_timestamp(section)
 
@@ -321,7 +330,7 @@ def main():
                     try:
                         gemini_api_key = config.get(section, 'GeminiAPIKey', fallback=None)
                         if not gemini_api_key or "YOUR_API_KEY" in gemini_api_key:
-                            logging.error(f"[{section}] Loi: 'GeminiAPIKey' chua duoc thiet lap cho firewall nay. Bo qua.")
+                            logging.error(f"[{section}] Loi: 'GeminiAPIKey' chua duoc thiet lap. Bo qua.")
                             continue
 
                         run_analysis_cycle(config, section, gemini_api_key)
@@ -352,7 +361,7 @@ def main():
                             else:
                                 state_manager.save_summary_count(current_count, section)
                         else:
-                             # Clean up count files if summary is disabled
+                             # // Clean up count files if summary is disabled
                             if os.path.exists(f".summary_report_count_{section}"):
                                 state_manager.save_summary_count(0, section)
                             if os.path.exists(f".final_summary_report_count_{section}"):
@@ -365,7 +374,7 @@ def main():
                     
                     logging.info(f"--- KET THUC XU LY CHO FIREWALL: {section} ---")
 
-        check_interval = config.getint('System', 'SchedulerCheckIntervalSeconds', fallback=60)
+        check_interval = initial_config.getint('System', 'SchedulerCheckIntervalSeconds', fallback=60)
         logging.info(f"Scheduler: Da kiem tra xong. Se ngu trong {check_interval} giay.")
         time.sleep(check_interval)
 

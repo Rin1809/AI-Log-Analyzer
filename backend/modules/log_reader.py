@@ -8,6 +8,20 @@ def read_new_log_entries(file_path, hours, timezone_str, firewall_id, test_mode=
     logging.info(f"[{firewall_id}] Bat dau doc log tu '{file_path}'.")
     try:
         tz = pytz.timezone(timezone_str)
+
+        # // fix: khi test, doc toan bo file log de dam bao co data
+        if test_mode:
+            logging.info(f"[{firewall_id}] TEST MODE: Doc toan bo file log '{file_path}'.")
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                all_entries = f.readlines()
+            
+            end_time = datetime.now(tz)
+            # // set start_time ve mot moc xa de bao gom tat ca log trong report
+            start_time = end_time - timedelta(days=30)
+            
+            logging.info(f"[{firewall_id}] Tim thay {len(all_entries)} dong log moi.")
+            return ("".join(all_entries), start_time, end_time)
+
         end_time = datetime.now(tz)
         last_run_time = state_manager.get_last_run_timestamp(firewall_id, test_mode)
 
