@@ -1,6 +1,0 @@
-Oct 17 10:15:01 pfsense filterlog[29013]: 10,,1000000103,em0,match,block,in,4,0x0,,64,56161,0,DF,6,tcp,60,45.146.165.4,192.168.1.10,21564,445,0,S,126887573,,64240,,
-Oct 17 10:15:10 pfsense filterlog[29013]: 4,,1000000103,em0,match,block,in,4,0x0,,62,56160,0,DF,17,udp,22,185.191.32.197,192.168.1.10,6881,16464,12
-Oct 17 10:20:25 pfsense dhcpd[11684]: DHCPREQUEST for 192.168.12.100 from 00:0c:29:f8:e9:15 via em1.12
-Oct 17 10:20:25 pfsense dhcpd[11684]: DHCPACK on 192.168.12.100 to 00:0c:29:f8:e9:15 via em1.12
-Oct 17 10:22:00 openvpn[12345]: user 'testuser' authenticated from 123.123.123.123:45678
-Oct 17 10:23:05 pfsense filterlog[29013]: 6,,1000001201,em1,match,pass,in,4,0x0,,48,3459,0,DF,6,tcp,40,192.168.11.50,8.8.8.8,54321,53,0,S,987654321,,
