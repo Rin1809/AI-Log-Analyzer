@@ -18,8 +18,11 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
 TEST_CONFIG_FILE = "test_assets/test_config.ini"
 
-def setup_test_environment(config):
-    """Prepares directories and resets states for ALL hosts before a test run."""
+def setup_test_environment(config, clean=False):
+    """
+    Prepares directories and resets states for ALL hosts before a test run.
+    Only cleans if the 'clean' flag is True.
+    """
     firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
     if not firewall_sections:
         logging.error(f"Khong tim thay section nao bat dau bang 'Firewall_' trong file '{TEST_CONFIG_FILE}'.")
@@ -27,16 +30,21 @@ def setup_test_environment(config):
 
     report_dir = config.get(firewall_sections[0], 'ReportDirectory')
 
-    if os.path.exists(report_dir):
-        shutil.rmtree(report_dir)
-        logging.info(f"Da xoa toan bo thu muc test cu: {report_dir}")
+    # // logic fix: Chi don dep neu co flag --clean
+    if clean:
+        logging.info("Flag --clean duoc kich hoat. Dang don sach moi truong test...")
+        if os.path.exists(report_dir):
+            shutil.rmtree(report_dir)
+            logging.info(f"Da xoa toan bo thu muc test cu: {report_dir}")
+        
+        for section in firewall_sections:
+            reset_all_states(section, test_mode=True)
+        
+        logging.info("Da reset toan bo state cho kịch bản test.")
 
+    # // Dam bao thu muc report luon ton tai
     os.makedirs(report_dir, exist_ok=True)
-    
-    for section in firewall_sections:
-        reset_all_states(section, test_mode=True)
-    
-    logging.info("Da reset toan bo state cho kịch bản test.")
+
 
 def run_test_for_host(config, firewall_section, test_type):
     """Runs a specific test type for a single configured firewall host."""
@@ -80,6 +88,12 @@ if __name__ == "__main__":
         choices=['periodic', 'summary', 'final', 'all'], 
         help="Loai test can chay: 'periodic', 'summary', 'final', or 'all'."
     )
+    # // new feature: them flag --clean
+    parser.add_argument(
+        '--clean',
+        action='store_true',
+        help="Xoa sach moi truong test (reports, states) truoc khi chay."
+    )
     args = parser.parse_args()
 
     logging.info(f"========== KHOI DONG KIEM THU CHUC NANG: {args.test_type.upper()} ==========")
@@ -91,15 +105,14 @@ if __name__ == "__main__":
     config = configparser.ConfigParser(interpolation=None)
     config.read(TEST_CONFIG_FILE)
     
-    # // Don dep toan bo moi truong mot lan duy nhat
-    setup_test_environment(config)
+    # // Don dep moi truong neu co yeu cau
+    setup_test_environment(config, args.clean)
     
     firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
 
     logging.info(f"Tim thay {len(firewall_sections)} host de test: {', '.join(firewall_sections)}")
 
     for section in firewall_sections:
-        # // fix: Check trang thai enabled truoc khi chay bat ky test nao
         if not config.getboolean(section, 'enabled', fallback=True):
             logging.warning(f"Bo qua host [{section}] do dang bi tat (enabled=false).")
             continue

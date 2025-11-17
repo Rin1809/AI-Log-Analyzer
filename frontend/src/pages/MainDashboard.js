@@ -38,7 +38,7 @@ const StatCard = ({ title, value, icon, color }) => {
 
 const MainDashboard = () => {
     const { isTestMode } = useOutletContext();
-    const [stats, setStats] = useState({ active: 0, inactive: 0, totalReports: 0 });
+    const [statusData, setStatusData] = useState([]);
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -49,23 +49,33 @@ const MainDashboard = () => {
     const cardBg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
 
+    // // logic fix: chart lay danh sach host tu status, du lieu tu reports
     const { chartData, hostKeys } = useMemo(() => {
+        // // nguon tin cay ve cac host can hien thi
+        const allHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
+
         const periodicReports = reports.filter(r => r.type === 'periodic');
-        if (periodicReports.length === 0) {
+        
+        if (periodicReports.length === 0 && allHostnames.length > 0) {
+            // // van hien thi chart trong, co ten host
+             const emptyData = [{ time: new Date().toLocaleString() }];
+             allHostnames.forEach(hostname => {
+                 emptyData[0][hostname] = 0;
+             });
+             return { chartData: emptyData, hostKeys: allHostnames };
+        }
+        
+        if (allHostnames.length === 0) {
             return { chartData: [], hostKeys: [] };
         }
-
+        
         const dataMap = new Map();
-        const seenHostnames = new Set();
 
         periodicReports.forEach(report => {
             const timestamp = new Date(report.generated_time).toLocaleString();
             const hostname = report.hostname;
-            // // fix: Doi sang dung raw_log_count
             const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
-
-            seenHostnames.add(hostname);
-
+            
             if (!dataMap.has(timestamp)) {
                 dataMap.set(timestamp, { time: timestamp });
             }
@@ -73,21 +83,31 @@ const MainDashboard = () => {
             const point = dataMap.get(timestamp);
             point[hostname] = (point[hostname] || 0) + logCount;
         });
-
-        const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
         
-        const allKeys = Array.from(seenHostnames);
-        sortedData.forEach(point => {
-            allKeys.forEach(key => {
-                if (!point[key]) {
+        // // dam bao moi host deu co gia tri, ke ca khi khong co report
+        for (const point of dataMap.values()) {
+            allHostnames.forEach(key => {
+                if (point[key] === undefined) {
                     point[key] = 0;
                 }
             });
-        });
+        }
         
-        return { chartData: sortedData, hostKeys: allKeys };
+        const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
+        
+        return { chartData: sortedData, hostKeys: allHostnames };
 
-    }, [reports]);
+    }, [reports, statusData]);
+
+    const stats = useMemo(() => {
+        const activeHosts = statusData.filter(s => s.is_enabled).length;
+        const inactiveHosts = statusData.length - activeHosts;
+        return {
+            active: activeHosts,
+            inactive: inactiveHosts,
+            totalReports: reports.length
+        };
+    }, [statusData, reports]);
 
 
     const fetchData = useCallback(async (testMode) => {
@@ -104,14 +124,7 @@ const MainDashboard = () => {
                 axios.get('/api/reports', apiParams)
             ]);
             
-            const activeHosts = statusRes.data.filter(s => s.is_enabled).length;
-            const inactiveHosts = statusRes.data.length - activeHosts;
-
-            setStats({
-                active: activeHosts,
-                inactive: inactiveHosts,
-                totalReports: reportsRes.data.length
-            });
+            setStatusData(statusRes.data);
             setReports(reportsRes.data);
 
         } catch (err) {
@@ -149,9 +162,8 @@ const MainDashboard = () => {
             </SimpleGrid>
 
             <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg} h="400px">
-                {/* // fix: Doi ten bieu do */}
                 <Heading size="md" mb={4}>Total Logs Over Time</Heading>
-                {chartData.length > 0 ? (
+                {hostKeys.length > 0 ? (
                     <ResponsiveContainer width="100%" height="90%">
                         <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" />
@@ -160,13 +172,20 @@ const MainDashboard = () => {
                             <Tooltip />
                             <Legend />
                             {hostKeys.map((key, index) => (
-                                <Line key={key} type="monotone" dataKey={key} name={`Logs: ${key}`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} />
+                                <Line 
+                                  key={key} 
+                                  type="monotone" 
+                                  dataKey={key} 
+                                  name={`Logs: ${key}`} 
+                                  stroke={COLORS[index % COLORS.length]} 
+                                  strokeWidth={2} 
+                                  dot={false} />
                             ))}
                         </LineChart>
                     </ResponsiveContainer>
                 ) : (
                     <Flex justify="center" align="center" h="100%">
-                        <Text>No periodic report data available to display chart.</Text>
+                        <Text>No active hosts found or no report data available.</Text>
                     </Flex>
                 )}
             </Box>
