@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useOutletContext } from 'react-router-dom';
 import {
@@ -37,49 +37,63 @@ const StatCard = ({ title, value, icon, color }) => {
 };
 
 const MainDashboard = () => {
-    const { isTestMode } = useOutletContext(); // // Lay state global
+    const { isTestMode } = useOutletContext();
     const [stats, setStats] = useState({ active: 0, inactive: 0, totalReports: 0 });
-    const [chartData, setChartData] = useState([]);
-    const [hostKeys, setHostKeys] = useState([]);
+    const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    
-    const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F'];
+    const isInitialLoad = useRef(true);
+
+    const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F', '#FFBB28'];
 
     const cardBg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
 
-    const processDataForChart = (reports) => {
+    const { chartData, hostKeys } = useMemo(() => {
         const periodicReports = reports.filter(r => r.type === 'periodic');
-        if (periodicReports.length === 0) return { data: [], keys: [] };
+        if (periodicReports.length === 0) {
+            return { chartData: [], hostKeys: [] };
+        }
 
-        const hostnames = [...new Set(periodicReports.map(r => r.hostname))];
         const dataMap = new Map();
+        const seenHostnames = new Set();
 
         periodicReports.forEach(report => {
-            try {
-                const timestamp = new Date(report.generated_time).toLocaleString();
-                const hostname = report.hostname;
-                const blockedEvents = parseInt(JSON.parse(report.path_placeholder.content).summary_stats.total_blocked_events, 10) || 0;
+            const timestamp = new Date(report.generated_time).toLocaleString();
+            const hostname = report.hostname;
+            // // fix: Doi sang dung raw_log_count
+            const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
 
-                if (!dataMap.has(timestamp)) {
-                    const newPoint = { time: timestamp };
-                    hostnames.forEach(hn => { newPoint[hn] = 0; });
-                    dataMap.set(timestamp, newPoint);
-                }
-                const point = dataMap.get(timestamp);
-                point[hostname] = (point[hostname] || 0) + blockedEvents;
-            } catch (e) {
-                // // ignore
+            seenHostnames.add(hostname);
+
+            if (!dataMap.has(timestamp)) {
+                dataMap.set(timestamp, { time: timestamp });
             }
+
+            const point = dataMap.get(timestamp);
+            point[hostname] = (point[hostname] || 0) + logCount;
         });
 
         const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
-        return { data: sortedData, keys: hostnames };
-    };
+        
+        const allKeys = Array.from(seenHostnames);
+        sortedData.forEach(point => {
+            allKeys.forEach(key => {
+                if (!point[key]) {
+                    point[key] = 0;
+                }
+            });
+        });
+        
+        return { chartData: sortedData, hostKeys: allKeys };
+
+    }, [reports]);
+
 
     const fetchData = useCallback(async (testMode) => {
-        setLoading(true); // // Set loading on each fetch
+        if (isInitialLoad.current) {
+            setLoading(true);
+        }
         setError('');
         
         try {
@@ -87,13 +101,7 @@ const MainDashboard = () => {
             
             const [statusRes, reportsRes] = await Promise.all([
                 axios.get('/api/status', apiParams),
-                axios.get('/api/reports', apiParams).then(async (res) => {
-                    const reportsWithContent = await Promise.all(res.data.map(async (report) => {
-                         const contentRes = await axios.get(`/api/report-content?path=${encodeURIComponent(report.path)}`, apiParams);
-                         return { ...report, path_placeholder: { content: JSON.stringify(contentRes.data) }};
-                    }));
-                    return { data: reportsWithContent };
-                })
+                axios.get('/api/reports', apiParams)
             ]);
             
             const activeHosts = statusRes.data.filter(s => s.is_enabled).length;
@@ -104,20 +112,21 @@ const MainDashboard = () => {
                 inactive: inactiveHosts,
                 totalReports: reportsRes.data.length
             });
-
-            const { data, keys } = processDataForChart(reportsRes.data);
-            setChartData(data);
-            setHostKeys(keys);
+            setReports(reportsRes.data);
 
         } catch (err) {
             console.error(err);
             setError(`Failed to fetch dashboard data. Details: ${err.message}`);
         } finally {
-            setLoading(false);
+            if (isInitialLoad.current) {
+                setLoading(false);
+                isInitialLoad.current = false;
+            }
         }
     }, []);
 
     useEffect(() => {
+        isInitialLoad.current = true;
         fetchData(isTestMode);
         const intervalId = setInterval(() => fetchData(isTestMode), POLLING_INTERVAL);
         return () => clearInterval(intervalId);
@@ -140,17 +149,18 @@ const MainDashboard = () => {
             </SimpleGrid>
 
             <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg} h="400px">
-                <Heading size="md" mb={4}>Blocked Events Over Time</Heading>
+                {/* // fix: Doi ten bieu do */}
+                <Heading size="md" mb={4}>Total Logs Over Time</Heading>
                 {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="90%">
                         <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="time" />
+                            <XAxis dataKey="time" tick={{ fontSize: 12 }} />
                             <YAxis />
                             <Tooltip />
                             <Legend />
                             {hostKeys.map((key, index) => (
-                                <Line key={key} type="monotone" dataKey={key} stroke={COLORS[index % COLORS.length]} />
+                                <Line key={key} type="monotone" dataKey={key} name={`Logs: ${key}`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} />
                             ))}
                         </LineChart>
                     </ResponsiveContainer>

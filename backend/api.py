@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 app = FastAPI(
     title="pfsense-log-analyzer API",
     description="API để quản lý và giám sát tool phân tích log pfSense.",
-    version="2.1.0", # // version bump for test mode feature
+    version="2.3.0", # // version bump for log count feature
 )
 
 # // @todo: config CORS chặt hơn cho production
@@ -66,8 +66,9 @@ class ReportInfo(BaseModel):
     filename: str
     path: str
     hostname: str
-    type: str # 'periodic', 'summary', 'final'
+    type: str 
     generated_time: str
+    summary_stats: Dict[str, Any] | None = None
 
 class ConfigUpdateRequest(BaseModel):
     content: str
@@ -122,46 +123,48 @@ async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
 
 @app.get("/api/reports", response_model=List[ReportInfo])
 async def get_all_reports(test_mode: bool = False):
-    """Quet va tra ve danh sach tat ca cac file report da duoc tao."""
+    """Quet, tra ve danh sach report va nhung luon summary_stats vao response."""
     try:
         config = get_config_parser(test_mode)
         firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-        if not firewall_sections:
-            return []
+        if not firewall_sections: return []
         
-        # // logic nay an toan vi se luon co it nhat mot section neu list khong rong
         report_dir = config.get(firewall_sections[0], 'ReportDirectory', fallback='test_reports')
-
-        if not os.path.isdir(report_dir):
-            return []
+        if not os.path.isdir(report_dir): return []
 
         reports = []
-        # // Pattern quet van nhu cu, vi report_dir da duoc lay tu file config dung
         report_files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
-        
         report_files.sort(key=os.path.getmtime, reverse=True)
-
         hostname_map = {fw_id: config.get(fw_id, 'SysHostname', fallback=fw_id) for fw_id in firewall_sections}
 
         for file_path in report_files:
             parts = file_path.split(os.sep)
-            # // logic nay hoi mong manh, nhung van ok
             firewall_id_from_path = parts[parts.index(report_dir.split(os.sep)[-1]) + 1]
 
             report_type = 'periodic'
-            if 'summary' in file_path:
-                report_type = 'summary'
-            if 'final' in file_path:
-                report_type = 'final'
+            if 'summary' in file_path: report_type = 'summary'
+            if 'final' in file_path: report_type = 'final'
             
             gen_time = datetime.fromtimestamp(os.path.getmtime(file_path))
 
+            report_summary_stats = None
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    report_content = json.load(f)
+                    report_summary_stats = report_content.get('summary_stats', {})
+                    # // fix: Them raw_log_count vao object summary_stats de frontend de xu ly
+                    report_summary_stats['raw_log_count'] = report_content.get('raw_log_count', 0)
+
+            except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+                logging.warning(f"Could not read or parse stats from {file_path}: {e}")
+                
             reports.append(ReportInfo(
                 filename=os.path.basename(file_path),
                 path=file_path,
                 hostname=hostname_map.get(firewall_id_from_path, 'Unknown'),
                 type=report_type,
-                generated_time=gen_time.strftime('%Y-%m-%d %H:%M:%S')
+                generated_time=gen_time.strftime('%Y-%m-%d %H:%M:%S'),
+                summary_stats=report_summary_stats
             ))
         return reports
     except Exception as e:
@@ -223,7 +226,6 @@ async def get_report_content(path: str, test_mode: bool = False):
     safe_base_dir = os.path.abspath(report_dir)
     requested_path = os.path.abspath(path)
 
-    # // Defensive coding: check path
     if not requested_path.startswith(safe_base_dir):
         raise HTTPException(status_code=403, detail="Access denied: Invalid path.")
 

@@ -45,7 +45,8 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
     prompt_file = config.get(firewall_section, 'prompt_file', fallback=PROMPT_TEMPLATE_FILE)
     model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-1.5-flash') 
 
-    logs_content, start_time, end_time = log_reader.read_new_log_entries(log_file, hours, timezone, firewall_section, test_mode)
+    # // fix: Nhan them log_count
+    logs_content, start_time, end_time, log_count = log_reader.read_new_log_entries(log_file, hours, timezone, firewall_section, test_mode)
     if logs_content is None:
         logging.error(f"[{firewall_section}] Khong the tiep tuc do loi doc file log.")
         return
@@ -66,6 +67,7 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
     report_data = {
         "hostname": hostname, "analysis_start_time": start_time.isoformat(), "analysis_end_time": end_time.isoformat(),
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
+        "raw_log_count": log_count, # // fix: Them so log goc vao report
         "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown
     }
     report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='periodic')
@@ -85,7 +87,6 @@ def run_analysis_cycle(config, firewall_section, api_key, test_mode=False):
 
         attachments_to_send = []
         if config.getboolean('Attachments', 'AttachContextFiles', fallback=False):
-            # // fix: Bo sung tat ca cac key cau hinh de tranh bi nham la file context
             standard_keys = [
                 'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
                 'reportdirectory', 'recipientemails', 'run_interval_seconds',
@@ -118,9 +119,8 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, test_mode=Fals
     summary_prompt_file = config.get(firewall_section, 'summary_prompt_file', fallback=SUMMARY_PROMPT_TEMPLATE_FILE)
     model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-1.5-flash') 
 
-    # // duong dan moi de quet report
     host_report_dir = os.path.join(report_dir, firewall_section)
-    report_files_pattern = os.path.join(host_report_dir, "periodic", "*", "*.json") # fix: only scan periodic reports
+    report_files_pattern = os.path.join(host_report_dir, "periodic", "*", "*.json")
     all_reports = sorted(glob.glob(report_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
     
     reports_to_summarize = all_reports[:reports_per_summary]
@@ -207,7 +207,6 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mod
     final_prompt_file = config.get(firewall_section, 'final_summary_prompt_file', fallback=FINAL_SUMMARY_PROMPT_TEMPLATE_FILE)
     model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-1.5-pro')
 
-    # // duong dan moi de quet report
     host_report_dir = os.path.join(report_dir, firewall_section)
     summary_files_pattern = os.path.join(host_report_dir, "summary", "*", "*.json")
     all_summary_reports = sorted(glob.glob(summary_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
@@ -287,7 +286,6 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mod
 def main():
     """Vong lap chinh cua chuong trinh."""
     while True:
-        # // config se duoc doc lai ben trong vong for
         initial_config = configparser.ConfigParser(interpolation=None)
         
         if not os.path.exists(CONFIG_FILE):
@@ -304,7 +302,6 @@ def main():
             logging.info(f"Scheduler: Thuc day luc {now.strftime('%Y-%m-%d %H:%M:%S')} de kiem tra lich.")
 
             for section in firewall_sections:
-                # // tam fix: doc lai config moi lan de lay state moi nhat
                 config = configparser.ConfigParser(interpolation=None)
                 config.read(CONFIG_FILE)
 
@@ -361,10 +358,9 @@ def main():
                             else:
                                 state_manager.save_summary_count(current_count, section)
                         else:
-                             # // Clean up count files if summary is disabled
-                            if os.path.exists(f".summary_report_count_{section}"):
+                             if os.path.exists(f".summary_report_count_{section}"):
                                 state_manager.save_summary_count(0, section)
-                            if os.path.exists(f".final_summary_report_count_{section}"):
+                             if os.path.exists(f".final_summary_report_count_{section}"):
                                 state_manager.save_final_summary_count(0, section)
                         
                         state_manager.save_last_cycle_run_timestamp(now, section)
