@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { useOutletContext } from 'react-router-dom';
 import {
   Box,
   SimpleGrid,
@@ -26,17 +27,16 @@ import {
   Textarea,
   useColorModeValue,
   Badge,
-  Flex
 } from '@chakra-ui/react';
 
 const POLLING_INTERVAL = 15000; // 15 seconds
 
 const FirewallStatusPage = () => {
+  const { isTestMode } = useOutletContext(); // // Lay state global
   const [status, setStatus] = useState([]);
   const [selectedConfig, setSelectedConfig] = useState({ id: null, content: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isTestMode, setIsTestMode] = useState(false);
   const toast = useToast();
   const { isOpen: isConfigModalOpen, onOpen: onConfigModalOpen, onClose: onConfigModalClose } = useDisclosure();
 
@@ -44,7 +44,8 @@ const FirewallStatusPage = () => {
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
   const fetchData = useCallback(async (testMode) => {
-    if (loading) setError('');
+    setLoading(true);
+    setError('');
     
     try {
       const apiParams = { params: { test_mode: testMode } };
@@ -52,24 +53,17 @@ const FirewallStatusPage = () => {
       setStatus(statusRes.data);
     } catch (err) {
       console.error(err);
-      setError(`Failed to connect to backend. Make sure the API server is running. Details: ${err.message}`);
+      setError(`Failed to connect to backend. Details: ${err.message}`);
     } finally {
-      if (loading) setLoading(false);
+      setLoading(false);
     }
-  }, [loading]);
+  }, []);
 
   useEffect(() => {
     fetchData(isTestMode);
     const intervalId = setInterval(() => fetchData(isTestMode), POLLING_INTERVAL);
     return () => clearInterval(intervalId);
   }, [fetchData, isTestMode]);
-
-  const handleTestModeToggle = (e) => {
-    const newTestMode = e.target.checked;
-    setIsTestMode(newTestMode);
-    setLoading(true);
-    fetchData(newTestMode);
-  };
 
   const handleToggleStatus = async (firewallId) => {
     try {
@@ -115,13 +109,9 @@ const FirewallStatusPage = () => {
 
   return (
     <VStack spacing={8} align="stretch">
-       <Flex justify="space-between" align="center" p={4} bg={cardBg} borderRadius="md" shadow="sm" borderWidth="1px" borderColor={borderColor}>
+       <Box p={4} bg={cardBg} borderRadius="md" shadow="sm" borderWidth="1px" borderColor={borderColor}>
         <Heading size="md">Firewall Status</Heading>
-        <FormControl display="flex" alignItems="center" w="auto">
-          <FormLabel htmlFor="test-mode-switch" mb="0" mr={3}>Test Mode</FormLabel>
-          <Switch colorScheme="blue" id="test-mode-switch" isChecked={isTestMode} onChange={handleTestModeToggle} />
-        </FormControl>
-      </Flex>
+      </Box>
       
       <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
         {status.map((fw) => (

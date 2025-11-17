@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { useOutletContext } from 'react-router-dom';
 import {
   Box,
   SimpleGrid,
@@ -12,13 +13,12 @@ import {
   HStack,
   Text,
   Icon,
-  Flex // // fix: da them Flex vao day
+  Flex
 } from '@chakra-ui/react';
 import { CheckCircleIcon, WarningTwoIcon, CopyIcon } from '@chakra-ui/icons';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-// // Polling interval
-const POLLING_INTERVAL = 30000; // 30 seconds for dashboard
+const POLLING_INTERVAL = 30000;
 
 const StatCard = ({ title, value, icon, color }) => {
     const cardBg = useColorModeValue('white', 'gray.800');
@@ -37,20 +37,19 @@ const StatCard = ({ title, value, icon, color }) => {
 };
 
 const MainDashboard = () => {
+    const { isTestMode } = useOutletContext(); // // Lay state global
     const [stats, setStats] = useState({ active: 0, inactive: 0, totalReports: 0 });
     const [chartData, setChartData] = useState([]);
     const [hostKeys, setHostKeys] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     
-    // // @todo: get this from user config or something smarter
     const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F'];
 
     const cardBg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
 
     const processDataForChart = (reports) => {
-        // // chi lay periodic reports de ve bieu do
         const periodicReports = reports.filter(r => r.type === 'periodic');
         if (periodicReports.length === 0) return { data: [], keys: [] };
 
@@ -59,22 +58,19 @@ const MainDashboard = () => {
 
         periodicReports.forEach(report => {
             try {
-                // // key la thoi gian, de gom cac report cung thoi diem
                 const timestamp = new Date(report.generated_time).toLocaleString();
                 const hostname = report.hostname;
-                // // API should probably return a number, but we parse it defensively
                 const blockedEvents = parseInt(JSON.parse(report.path_placeholder.content).summary_stats.total_blocked_events, 10) || 0;
 
                 if (!dataMap.has(timestamp)) {
                     const newPoint = { time: timestamp };
-                    hostnames.forEach(hn => { newPoint[hn] = 0; }); // init voi 0
+                    hostnames.forEach(hn => { newPoint[hn] = 0; });
                     dataMap.set(timestamp, newPoint);
                 }
-
                 const point = dataMap.get(timestamp);
                 point[hostname] = (point[hostname] || 0) + blockedEvents;
             } catch (e) {
-                // // ignore bad report data
+                // // ignore
             }
         });
 
@@ -82,17 +78,15 @@ const MainDashboard = () => {
         return { data: sortedData, keys: hostnames };
     };
 
-    const fetchData = useCallback(async () => {
-        if (loading) setError('');
+    const fetchData = useCallback(async (testMode) => {
+        setLoading(true); // // Set loading on each fetch
+        setError('');
         
         try {
-            // // For dashboard, we use production config, not test_mode
-            const apiParams = { params: { test_mode: false } };
+            const apiParams = { params: { test_mode: testMode } };
             
             const [statusRes, reportsRes] = await Promise.all([
                 axios.get('/api/status', apiParams),
-                // // can't use the real report content API without a path, so we fake it
-                // // In a real scenario, you'd need a new API endpoint like /api/reports/content
                 axios.get('/api/reports', apiParams).then(async (res) => {
                     const reportsWithContent = await Promise.all(res.data.map(async (report) => {
                          const contentRes = await axios.get(`/api/report-content?path=${encodeURIComponent(report.path)}`, apiParams);
@@ -119,15 +113,15 @@ const MainDashboard = () => {
             console.error(err);
             setError(`Failed to fetch dashboard data. Details: ${err.message}`);
         } finally {
-            if (loading) setLoading(false);
+            setLoading(false);
         }
-    }, [loading]);
+    }, []);
 
     useEffect(() => {
-        fetchData();
-        const intervalId = setInterval(fetchData, POLLING_INTERVAL);
+        fetchData(isTestMode);
+        const intervalId = setInterval(() => fetchData(isTestMode), POLLING_INTERVAL);
         return () => clearInterval(intervalId);
-    }, [fetchData]);
+    }, [fetchData, isTestMode]);
 
     if (loading) {
         return <Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" />;

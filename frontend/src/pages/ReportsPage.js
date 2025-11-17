@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
+import { useOutletContext } from 'react-router-dom';
 import {
   Box,
   Spinner,
@@ -35,10 +36,11 @@ import {
 } from '@chakra-ui/react';
 import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
-const POLLING_INTERVAL = 15000; // 15 seconds
+const POLLING_INTERVAL = 15000;
 const REPORTS_PER_PAGE = 10;
 
 const ReportsPage = () => {
+  const { isTestMode } = useOutletContext(); // // Lay state global
   const [reports, setReports] = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -54,26 +56,26 @@ const ReportsPage = () => {
   const borderColor = useColorModeValue('gray.200', 'gray.700');
   const inputBg = useColorModeValue('gray.50', 'gray.700');
 
-  const fetchData = useCallback(async () => {
-    if (loading) setError('');
+  const fetchData = useCallback(async (testMode) => {
+    setLoading(true);
+    setError('');
     try {
-      // // mac dinh la false, vi trang nay khong co toggle test mode
-      const apiParams = { params: { test_mode: false } };
+      const apiParams = { params: { test_mode: testMode } };
       const reportsRes = await axios.get('/api/reports', apiParams);
       setReports(reportsRes.data);
     } catch (err) {
       console.error(err);
-      setError(`Failed to connect to backend. Make sure the API server is running. Details: ${err.message}`);
+      setError(`Failed to connect to backend. Details: ${err.message}`);
     } finally {
-      if (loading) setLoading(false);
+      setLoading(false);
     }
-  }, [loading]);
+  }, []);
 
   useEffect(() => {
-    fetchData();
-    const intervalId = setInterval(fetchData, POLLING_INTERVAL);
+    fetchData(isTestMode);
+    const intervalId = setInterval(() => fetchData(isTestMode), POLLING_INTERVAL);
     return () => clearInterval(intervalId);
-  }, [fetchData]);
+  }, [fetchData, isTestMode]);
 
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
@@ -96,7 +98,7 @@ const ReportsPage = () => {
 
   const handleViewReport = async (reportPath) => {
     try {
-      const res = await axios.get(`/api/report-content?path=${encodeURIComponent(reportPath)}`, { params: { test_mode: false } });
+      const res = await axios.get(`/api/report-content?path=${encodeURIComponent(reportPath)}`, { params: { test_mode: isTestMode } });
       setSelectedReport({
         name: reportPath.split(/\/|\\/).pop(),
         content: JSON.stringify(res.data, null, 2)

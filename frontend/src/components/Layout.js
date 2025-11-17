@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   Box,
@@ -9,6 +9,9 @@ import {
   useColorModeValue,
   VStack,
   Tooltip,
+  FormControl,
+  FormLabel,
+  Switch
 } from '@chakra-ui/react';
 import { SunIcon, MoonIcon, ViewIcon, SettingsIcon, QuestionOutlineIcon, TimeIcon, CopyIcon } from '@chakra-ui/icons';
 
@@ -125,6 +128,7 @@ const Sidebar = () => {
 
 const Layout = () => {
   const bg = useColorModeValue('gray.50', 'gray.900');
+  const [isTestMode, setIsTestMode] = useState(false);
 
   return (
     <Flex minH="100vh" bg={bg}>
@@ -134,10 +138,23 @@ const Layout = () => {
           <Heading as="h1" size="lg">
             pfSense Log Analyzer
           </Heading>
-          <ColorModeSwitcher />
+          <Flex align="center">
+            <FormControl display="flex" alignItems="center" w="auto" mr={4}>
+                <FormLabel htmlFor="test-mode-switch" mb="0" mr={3}>
+                    Test Mode
+                </FormLabel>
+                <Switch 
+                    colorScheme="blue" 
+                    id="test-mode-switch" 
+                    isChecked={isTestMode} 
+                    onChange={(e) => setIsTestMode(e.target.checked)} 
+                />
+            </FormControl>
+            <ColorModeSwitcher />
+          </Flex>
         </Flex>
-        {/* // Child routes will render here */}
-        <Outlet />
+        {/* // Child routes will get isTestMode via context */}
+        <Outlet context={{ isTestMode }} />
       </Box>
     </Flex>
   );
