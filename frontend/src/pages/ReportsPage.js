@@ -96,7 +96,7 @@ const ReportsPage = () => {
   return (
     <VStack spacing={8} align="stretch">
       <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-        <Heading size="md" mb={4}>Generated Reports</Heading>
+        <Heading size="lg" fontWeight="normal" mb={4}>Generated Reports</Heading>
         <ReportFilters filters={filters} onFilterChange={setFilters} />
         <ReportsTable reports={currentReports} onViewReport={handleViewReport} />
         <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />

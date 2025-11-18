@@ -8,10 +8,10 @@ const CustomLegend = ({ payload }) => {
     const textColor = useColorModeValue('gray.600', 'gray.300');
     if (!payload || payload.length === 0) return null;
     return (
-        <VStack align="start" justify="center" h="100%" spacing={3}>
+        <VStack align="start" justify="center" h="100%" spacing={3} pl={4}>
             {payload.map((entry, index) => (
                 <HStack key={`item-${index}`} spacing={3}>
-                    <Box boxSize="12px" borderRadius="full" bg={entry.color} />
+                    <Box boxSize="12px" borderRadius="sm" bg={entry.color} />
                     <Text fontSize="sm" color={textColor}>
                         {entry.value} ({entry.payload.payload.value})
                     </Text>
@@ -33,10 +33,9 @@ const PieChartDisplay = ({ data }) => {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    innerRadius="60%"
                     outerRadius="80%"
                     fill="#8884d8"
-                    paddingAngle={5}
+                    paddingAngle={2}
                     dataKey="value"
                     nameKey="name"
                 >

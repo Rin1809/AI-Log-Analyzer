@@ -6,12 +6,22 @@ import {
   FormControl,
   FormLabel,
   Switch,
-  Text,
   useColorModeValue,
   IconButton,
   useColorMode,
+  HStack,
+  Text,
 } from '@chakra-ui/react';
 import { SunIcon, MoonIcon } from '@chakra-ui/icons';
+
+
+const Logo = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="32px" height="32px" viewBox="0 0 256 256">
+        <path fill="#000000ff" d="M128 24a104 104 0 1 0 104 104A104.12 104.12 0 0 0 128 24Zm-21.23 74.77a8 8 0 0 1 11.31 0L128 108.69l9.9-9.9a8 8 0 0 1 11.31 11.31L139.31 120l9.9 9.9a8 8 0 0 1-11.31 11.31L128 131.31l-9.9 9.9a8 8 0 0 1-11.31-11.31L116.69 120l-9.9-9.9a8 8 0 0 1 0-11.32Z"/>
+        <path fill="#000000ff" d="m181.23 109.23l-11.32-11.31a8 8 0 0 0-11.31 11.31L168.5 120l-9.9 9.9a8 8 0 0 0 11.31 11.31l11.32-11.32a8 8 0 0 0 0-11.32ZM74.77 109.23a8 8 0 0 0-11.31 0l-11.32 11.32a8 8 0 0 0 0 11.32l11.32 11.31a8 8 0 0 0 11.31-11.31L64.89 120l9.88-9.9a8 8 0 0 0 0-11.32Z"/>
+    </svg>
+);
+
 
 const ColorModeSwitcher = () => {
   const { toggleColorMode } = useColorMode();
@@ -37,27 +47,24 @@ const Header = ({ isTestMode, setIsTestMode }) => {
   return (
     <Box
       bg={headerBg}
-      p={4}
-      borderRadius="lg"
-      borderWidth="1px"
+      px={6}
+      py={3}
+      borderBottomWidth="1px"
       borderColor={borderColor}
-      boxShadow="sm"
       mb={6}
     >
-      <Flex justify="space-between" align="center">
-        <Box>
-          <Heading as="h1" size="lg" fontWeight="bold">
+      <Flex h={12} alignItems="center" justifyContent="space-between">
+        <HStack spacing={4} alignItems="center">
+          <Logo />
+          <Heading as="h1" size="md" fontWeight="normal">
             AI Log Analyzer
           </Heading>
-          <Text fontSize="sm" color={useColorModeValue('gray.500', 'gray.400')}>
-            Dashboard Overview
-          </Text>
-        </Box>
+        </HStack>
 
-        <Flex align="center">
+        <Flex alignItems="center">
           <FormControl display="flex" alignItems="center" w="auto" mr={4}>
-            <FormLabel htmlFor="test-mode-switch" mb="0" mr={3} whiteSpace="nowrap">
-              Test Mode
+            <FormLabel htmlFor="test-mode-switch" mb="0" mr={2} whiteSpace="nowrap" fontSize="sm">
+              <Text as="span" d={{ base: 'none', md: 'inline' }}>Test Mode</Text>
             </FormLabel>
             <Switch
               colorScheme="blue"

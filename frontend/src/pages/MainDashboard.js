@@ -10,6 +10,7 @@ import {
   useColorModeValue,
   VStack,
   Center,
+  Heading,
 } from '@chakra-ui/react';
 import PieChartDisplay from '../components/dashboard/PieChartDisplay';
 import LineChartDisplay from '../components/dashboard/LineChartDisplay';
@@ -88,7 +89,6 @@ const MainDashboard = () => {
         const periodicReports = reports.filter(r => r.type === 'periodic');
         if (activeHostnames.length === 0 || periodicReports.length === 0) return { data: [], keys: [] };
 
-        // // logic fix: tao data lien tuc
         const reportMap = new Map();
         periodicReports.forEach(r => {
             const timestamp = new Date(r.generated_time).getTime();
@@ -131,12 +131,15 @@ const MainDashboard = () => {
     return (
         <VStack spacing={6} align="stretch">
             <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
-                <InfoCard title="Host Status"><PieChartDisplay data={hostStatusData} /></InfoCard>
+                <InfoCard title="Host Status" ><PieChartDisplay data={hostStatusData} /></InfoCard>
                 <InfoCard title="Report Types"><PieChartDisplay data={reportTypeData} /></InfoCard>
                 <InfoCard title="Reports by Host"><PieChartDisplay data={reportsByHostData} /></InfoCard>
             </SimpleGrid>
 
             <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
+                <Heading size="sm" mb={4} textAlign="center" fontWeight="semibold">
+                  Periodic Log Analysis (by log count)
+                </Heading>
                 <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
             </Box>
         </VStack>

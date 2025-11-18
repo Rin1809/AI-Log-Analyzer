@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Box,
   Heading,
-  Button,
   VStack,
   HStack,
   Text,
@@ -11,7 +10,10 @@ import {
   FormLabel,
   useColorModeValue,
   Badge,
+  IconButton,
+  Tooltip,
 } from '@chakra-ui/react';
+import { EditIcon } from '@chakra-ui/icons';
 
 const HostCard = ({ fw, onToggleStatus, onEditConfig }) => {
   const cardBg = useColorModeValue('white', 'gray.800');
@@ -23,23 +25,33 @@ const HostCard = ({ fw, onToggleStatus, onEditConfig }) => {
       shadow="md"
       borderWidth="1px"
       borderColor={borderColor}
-      borderRadius="md"
+      borderRadius="lg"
       bg={cardBg}
+      transition="all 0.2s"
+      _hover={{ shadow: 'lg', transform: 'translateY(-2px)' }}
     >
-      <VStack align="stretch" spacing={3}>
+      <VStack align="stretch" spacing={4}>
         <HStack justify="space-between">
           <Heading size="md" isTruncated title={fw.hostname}>{fw.hostname}</Heading>
-          <Badge colorScheme={fw.is_enabled ? 'green' : 'red'}>{fw.status}</Badge>
+          <Badge colorScheme={fw.is_enabled ? 'green' : 'red'} variant="solid" fontSize="0.7em">{fw.status}</Badge>
         </HStack>
-        <Text fontSize="sm" color="gray.500">
+        <Text fontSize="xs" color="gray.500" minHeight="3em">
           Last run: {fw.last_run !== 'Never' ? new Date(fw.last_run).toLocaleString() : 'Never'}
         </Text>
-        <HStack justify="space-between">
+        <HStack justify="space-between" mt={2}>
           <FormControl display="flex" alignItems="center">
-            <FormLabel htmlFor={`switch-${fw.id}`} mb="0" fontSize="sm">Enabled</FormLabel>
-            <Switch size="sm" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => onToggleStatus(fw.id)} />
+            <FormLabel htmlFor={`switch-${fw.id}`} mb="0" fontSize="sm" mr={2}>Enabled</FormLabel>
+            <Switch size="sm" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => onToggleStatus(fw.id)} colorScheme="blue" />
           </FormControl>
-          <Button size="sm" onClick={() => onEditConfig(fw.id)}>Edit Config</Button>
+          <Tooltip label="Edit Config" placement="top">
+            <IconButton
+              size="sm"
+              variant="ghost"
+              icon={<EditIcon />}
+              onClick={() => onEditConfig(fw.id)}
+              aria-label="Edit configuration"
+            />
+          </Tooltip>
         </HStack>
       </VStack>
     </Box>

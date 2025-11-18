@@ -11,7 +11,6 @@ import {
   useDisclosure,
   useToast,
   VStack,
-  useColorModeValue,
   Center
 } from '@chakra-ui/react';
 import HostCard from '../components/hosts/HostCard';
@@ -28,12 +27,8 @@ const HostStatusPage = () => {
   const toast = useToast();
   const { isOpen: isConfigModalOpen, onOpen: onConfigModalOpen, onClose: onConfigModalClose } = useDisclosure();
 
-  const cardBg = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
-
   const fetchData = useCallback(async (testMode) => {
-    // // logic nay de khong show spinner khi polling
-    if (status.length === 0) setLoading(true); 
+    if (status.length === 0) setLoading(true);
     setError('');
 
     try {
@@ -97,12 +92,12 @@ const HostStatusPage = () => {
   }
 
   return (
-    <VStack spacing={8} align="stretch">
-      <Box p={4} bg={cardBg} borderRadius="md" shadow="sm" borderWidth="1px" borderColor={borderColor}>
-        <Heading size="md">Host Status</Heading>
+    <VStack spacing={6} align="stretch">
+      <Box>
+        <Heading size="lg" fontWeight="normal">Host Status</Heading>
       </Box>
 
-      <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+      <SimpleGrid columns={{ base: 1, md: 2, lg: 3, xl: 4 }} spacing={6}>
         {status.map((fw) => (
           <HostCard
             key={fw.id}
