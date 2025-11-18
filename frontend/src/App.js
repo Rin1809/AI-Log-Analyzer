@@ -28,6 +28,20 @@ const theme = extendTheme({
       900: '#191919',   
     },
   },
+  components: {
+    Select: {
+      variants: {
+        outline: {
+          field: {
+            _dark: {
+              bg: 'gray.800',
+              borderColor: 'gray.700',
+            },
+          },
+        },
+      },
+    },
+  },
   styles: {
     global: (props) => ({
       body: {

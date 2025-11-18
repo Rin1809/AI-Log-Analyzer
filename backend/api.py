@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Dict, Any, Optional
 
 import sys
@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 app = FastAPI(
     title="AI-log-analyzer API",
     description="API để quản lý và giám sát tool phân tích log.",
-    version="2.6.0", # // Standardize keys to snake_case
+    version="2.7.0", # // feat: Overhaul system settings
 )
 
 origins = [
@@ -50,7 +50,7 @@ def get_system_settings_path(test_mode: bool = False) -> str:
 
 def get_system_config_parser(test_mode: bool = False) -> configparser.ConfigParser:
     config_path = get_system_settings_path(test_mode)
-    config = configparser.ConfigParser(interpolation=None)
+    config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
     
     if not os.path.exists(config_path):
         logging.warning(f"File system settings '{config_path}' khong ton tai. Tao file moi.")
@@ -61,6 +61,7 @@ def get_system_config_parser(test_mode: bool = False) -> configparser.ConfigPars
     config.read(config_path)
     return config
 
+# --- Pydantic Models ---
 
 class FirewallStatus(BaseModel):
     id: str
@@ -80,10 +81,22 @@ class ReportInfo(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     content: str
 
+class SmtpProfile(BaseModel):
+    profile_name: str = Field(..., min_length=1)
+    server: str = Field(..., min_length=1)
+    port: int = Field(..., gt=0)
+    sender_email: EmailStr
+    sender_password: str
+
 class SystemSettings(BaseModel):
-    report_directory: Optional[str] = None
-    prompt_directory: Optional[str] = None
-    context_directory: Optional[str] = None
+    report_directory: Optional[str] = ''
+    prompt_directory: Optional[str] = ''
+    context_directory: Optional[str] = ''
+    smtp_profiles: Dict[str, SmtpProfile] = {}
+    active_smtp_profile: Optional[str] = None
+    attach_context_files: bool = False
+    scheduler_check_interval_seconds: int = 60
+
 
 # --- API Endpoints ---
 @app.get("/api/status", response_model=List[FirewallStatus])
@@ -132,14 +145,19 @@ async def get_all_reports(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read(get_active_config_file(test_mode))
-        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-        if not firewall_sections: return []
-        report_dir = config.get(firewall_sections[0], 'ReportDirectory', fallback='test_reports')
+        system_settings = get_system_config_parser(test_mode)
+        
+        report_dir = system_settings.get('System', 'report_directory', fallback='test_reports')
+        
         if not os.path.isdir(report_dir): return []
+        
+        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
+        hostname_map = {fw_id: config.get(fw_id, 'SysHostname', fallback=fw_id) for fw_id in firewall_sections}
+        
         reports = []
         report_files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
         report_files.sort(key=os.path.getmtime, reverse=True)
-        hostname_map = {fw_id: config.get(fw_id, 'SysHostname', fallback=fw_id) for fw_id in firewall_sections}
+        
         for file_path in report_files:
             parts = file_path.split(os.sep)
             try:
@@ -147,11 +165,14 @@ async def get_all_reports(test_mode: bool = False):
                 firewall_id_from_path = parts[parts.index(report_dir_base) + 1]
             except (ValueError, IndexError):
                 firewall_id_from_path = "Unknown_Host"
+            
             report_type = 'periodic'
             if 'summary' in file_path: report_type = 'summary'
             if 'final' in file_path: report_type = 'final'
+            
             gen_time = datetime.fromtimestamp(os.path.getmtime(file_path))
             report_summary_stats = None
+            
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     report_content = json.load(f)
@@ -159,6 +180,7 @@ async def get_all_reports(test_mode: bool = False):
                     report_summary_stats['raw_log_count'] = report_content.get('raw_log_count', 0)
             except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
                 logging.warning(f"Could not read or parse stats from {file_path}: {e}")
+            
             reports.append(ReportInfo(
                 filename=os.path.basename(file_path),
                 path=file_path,
@@ -209,19 +231,17 @@ async def update_firewall_config(firewall_id: str, request: ConfigUpdateRequest,
 
 @app.get("/api/report-content", response_model=Dict[str, Any])
 async def get_report_content(path: str, test_mode: bool = False):
-    config_path = get_active_config_file(test_mode)
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(config_path)
-    firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-    if not firewall_sections:
-        raise HTTPException(status_code=500, detail="No firewalls configured.")
-    report_dir = config.get(firewall_sections[0], 'ReportDirectory', fallback='test_reports')
+    system_settings = get_system_config_parser(test_mode)
+    report_dir = system_settings.get('System', 'report_directory', fallback='test_reports')
+    
     safe_base_dir = os.path.abspath(report_dir)
     requested_path = os.path.abspath(path)
+    
     if not requested_path.startswith(safe_base_dir):
         raise HTTPException(status_code=403, detail="Access denied: Invalid path.")
     if not os.path.exists(requested_path):
         raise HTTPException(status_code=404, detail="Report file not found.")
+    
     try:
         with open(requested_path, 'r', encoding='utf-8') as f:
             content = json.load(f)
@@ -232,31 +252,67 @@ async def get_report_content(path: str, test_mode: bool = False):
 
 @app.get("/api/system-settings", response_model=SystemSettings)
 async def get_system_settings(test_mode: bool = False):
-    """Lay cac cau hinh chung. Keys tra ve la snake_case."""
     try:
         config = get_system_config_parser(test_mode)
-        if 'System' not in config:
-            return SystemSettings()
-        
-        settings_data = {key: value for key, value in config.items('System')}
-        return SystemSettings(**settings_data)
+        settings = SystemSettings()
+
+        if 'System' in config:
+            system_sec = config['System']
+            settings.report_directory = system_sec.get('report_directory', '')
+            settings.prompt_directory = system_sec.get('prompt_directory', '')
+            settings.context_directory = system_sec.get('context_directory', '')
+            settings.active_smtp_profile = system_sec.get('active_smtp_profile')
+            settings.attach_context_files = system_sec.getboolean('attach_context_files', False)
+            settings.scheduler_check_interval_seconds = system_sec.getint('scheduler_check_interval_seconds', 60)
+
+        profiles = {}
+        for section_name in config.sections():
+            if section_name.startswith('Email_'):
+                profile_name = section_name[6:]
+                profile_sec = config[section_name]
+                profiles[profile_name] = SmtpProfile(
+                    profile_name=profile_name,
+                    server=profile_sec.get('server'),
+                    port=profile_sec.getint('port'),
+                    sender_email=profile_sec.get('sender_email'),
+                    sender_password=profile_sec.get('sender_password', '')
+                )
+        settings.smtp_profiles = profiles
+        return settings
     except Exception as e:
         logging.error(f"Error getting system settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/system-settings", response_model=Dict[str, str])
 async def update_system_settings(settings: SystemSettings, test_mode: bool = False):
-    """Cap nhat cau hinh. Keys tu request la snake_case."""
     try:
         config_path = get_system_settings_path(test_mode)
         config = get_system_config_parser(test_mode)
+
+        # // Xoa sach cac section email cu de ghi lai tu dau
+        for section in config.sections():
+            if section.startswith('Email_'):
+                config.remove_section(section)
+
         if 'System' not in config:
             config.add_section('System')
-
-        update_data = settings.model_dump()
         
-        for key, value in update_data.items():
-            config.set('System', key, str(value) if value is not None else '')
+        # // Ghi cac thong tin chung
+        config.set('System', 'report_directory', settings.report_directory or '')
+        config.set('System', 'prompt_directory', settings.prompt_directory or '')
+        config.set('System', 'context_directory', settings.context_directory or '')
+        config.set('System', 'active_smtp_profile', settings.active_smtp_profile or '')
+        config.set('System', 'attach_context_files', str(settings.attach_context_files))
+        config.set('System', 'scheduler_check_interval_seconds', str(settings.scheduler_check_interval_seconds))
+
+        # // Ghi lai cac profile email
+        for name, profile in settings.smtp_profiles.items():
+            section_name = f'Email_{name}'
+            config.add_section(section_name)
+            config.set(section_name, 'server', profile.server)
+            config.set(section_name, 'port', str(profile.port))
+            config.set(section_name, 'sender_email', profile.sender_email)
+            config.set(section_name, 'sender_password', profile.sender_password)
 
         with open(config_path, 'w') as configfile:
             config.write(configfile)

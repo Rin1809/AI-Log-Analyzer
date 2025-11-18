@@ -17,6 +17,7 @@ LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
 TEST_CONFIG_FILE = "test_assets/test_config.ini"
+TEST_SYSTEM_SETTINGS_FILE = "system_settings_test.ini" 
 
 def setup_test_environment(config, clean=False):
     """
@@ -28,9 +29,11 @@ def setup_test_environment(config, clean=False):
         logging.error(f"Khong tim thay section nao bat dau bang 'Firewall_' trong file '{TEST_CONFIG_FILE}'.")
         sys.exit(1)
 
-    report_dir = config.get(firewall_sections[0], 'ReportDirectory')
-
-    # // logic fix: Chi don dep neu co flag --clean
+    # // doc report dir tu system settings thay vi host config
+    system_config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
+    system_config.read(TEST_SYSTEM_SETTINGS_FILE)
+    report_dir = system_config.get('System', 'report_directory', fallback='test_reports')
+    
     if clean:
         logging.info("Flag --clean duoc kich hoat. Dang don sach moi truong test...")
         if os.path.exists(report_dir):
@@ -42,11 +45,10 @@ def setup_test_environment(config, clean=False):
         
         logging.info("Da reset toan bo state cho kịch bản test.")
 
-    # // Dam bao thu muc report luon ton tai
     os.makedirs(report_dir, exist_ok=True)
 
 
-def run_test_for_host(config, firewall_section, test_type):
+def run_test_for_host(config, firewall_section, test_type, system_settings): # // fix: Nhan them system_settings
     """Runs a specific test type for a single configured firewall host."""
     api_key = config.get(firewall_section, 'GeminiAPIKey')
 
@@ -56,17 +58,16 @@ def run_test_for_host(config, firewall_section, test_type):
     
     if test_type in ['periodic', 'summary', 'final', 'all']:
         logging.info(f"--- Bat dau kịch bản test [PERIODIC] cho [{firewall_section}] ---")
-        run_analysis_cycle(config, firewall_section, api_key, test_mode=True)
+        run_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
         if test_type == 'periodic':
             return
 
     if test_type in ['summary', 'final', 'all']:
-        # phai tao them 1 report periodic nua de du dieu kien chay summary
         logging.info(f"--- Tao them bao cao dinh ky de du dieu kien cho [SUMMARY] - Host: [{firewall_section}] ---")
-        run_analysis_cycle(config, firewall_section, api_key, test_mode=True)
+        run_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
         
         logging.info(f"--- Bat dau kịch bản test [SUMMARY] cho [{firewall_section}] ---")
-        summary_success = run_summary_analysis_cycle(config, firewall_section, api_key, test_mode=True)
+        summary_success = run_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
         if test_type == 'summary':
             return
         
@@ -76,7 +77,7 @@ def run_test_for_host(config, firewall_section, test_type):
              return
 
         logging.info(f"--- Bat dau kịch bản test [FINAL] cho [{firewall_section}] ---")
-        run_final_summary_analysis_cycle(config, firewall_section, api_key, test_mode=True)
+        run_final_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
         if test_type == 'final':
              return
 
@@ -88,7 +89,6 @@ if __name__ == "__main__":
         choices=['periodic', 'summary', 'final', 'all'], 
         help="Loai test can chay: 'periodic', 'summary', 'final', or 'all'."
     )
-    # // new feature: them flag --clean
     parser.add_argument(
         '--clean',
         action='store_true',
@@ -101,11 +101,19 @@ if __name__ == "__main__":
     if not os.path.exists(TEST_CONFIG_FILE):
         logging.error(f"File cau hinh test '{TEST_CONFIG_FILE}' khong ton tai.")
         sys.exit(1)
+        
+    if not os.path.exists(TEST_SYSTEM_SETTINGS_FILE):
+        logging.error(f"File cau hinh he thong test '{TEST_SYSTEM_SETTINGS_FILE}' khong ton tai.")
+        sys.exit(1)
 
+    # // doc config host
     config = configparser.ConfigParser(interpolation=None)
     config.read(TEST_CONFIG_FILE)
     
-    # // Don dep moi truong neu co yeu cau
+    # // doc config system
+    system_config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
+    system_config.read(TEST_SYSTEM_SETTINGS_FILE)
+    
     setup_test_environment(config, args.clean)
     
     firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
@@ -118,7 +126,7 @@ if __name__ == "__main__":
             continue
 
         logging.info(f"========== Bat dau xu ly cho host: [{section}] ==========")
-        run_test_for_host(config, section, args.test_type)
+        run_test_for_host(config, section, args.test_type, system_config)
         logging.info(f"========== Hoan tat xu ly cho host: [{section}] ==========\n")
 
     logging.info(f"========== KET THUC KIEM THU: {args.test_type.upper()} ==========")
