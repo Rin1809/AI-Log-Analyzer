@@ -131,17 +131,27 @@ const MainDashboard = () => {
     return (
         <VStack spacing={6} align="stretch">
             <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
-                <InfoCard title="Host Status" ><PieChartDisplay data={hostStatusData} /></InfoCard>
-                <InfoCard title="Report Types"><PieChartDisplay data={reportTypeData} /></InfoCard>
-                <InfoCard title="Reports by Host"><PieChartDisplay data={reportsByHostData} /></InfoCard>
+                <VStack align="stretch" spacing={3}>
+                    <Heading size="md" fontWeight="normal" textAlign="left">Host Status</Heading>
+                    <InfoCard><PieChartDisplay data={hostStatusData} /></InfoCard>
+                </VStack>
+                <VStack align="stretch" spacing={3}>
+                    <Heading size="md" fontWeight="normal" textAlign="left">Report Types</Heading>
+                    <InfoCard><PieChartDisplay data={reportTypeData} /></InfoCard>
+                </VStack>
+                <VStack align="stretch" spacing={3}>
+                    <Heading size="md" fontWeight="normal" textAlign="left">Reports by Host</Heading>
+                    <InfoCard><PieChartDisplay data={reportsByHostData} /></InfoCard>
+                </VStack>
             </SimpleGrid>
+            
+            <VStack align="stretch" spacing={3} mt={4}>
+                <Heading size="md" fontWeight="normal" textAlign="left">Periodic Log Analysis (by log count)</Heading>
+                <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
+                    <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
+                </Box>
+            </VStack>
 
-            <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
-                <Heading size="sm" mb={4} textAlign="center" fontWeight="semibold">
-                  Periodic Log Analysis (by log count)
-                </Heading>
-                <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
-            </Box>
         </VStack>
     );
 };

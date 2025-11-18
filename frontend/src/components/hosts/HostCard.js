@@ -22,13 +22,12 @@ const HostCard = ({ fw, onToggleStatus, onEditConfig }) => {
   return (
     <Box
       p={5}
-      shadow="md"
       borderWidth="1px"
       borderColor={borderColor}
       borderRadius="lg"
       bg={cardBg}
       transition="all 0.2s"
-      _hover={{ shadow: 'lg', transform: 'translateY(-2px)' }}
+      _hover={{ transform: 'translateY(-2px)' }}
     >
       <VStack align="stretch" spacing={4}>
         <HStack justify="space-between">
