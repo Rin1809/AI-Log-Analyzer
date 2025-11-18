@@ -18,7 +18,8 @@ Bonus_context/
 backend/config.ini
 backend/test_assets/test_config.ini
 
-
+system_settings.ini
+system_settings_test.ini
 *.log
 backend/Bonus_context/pfsense.log
 

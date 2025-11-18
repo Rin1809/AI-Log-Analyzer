@@ -47,22 +47,26 @@ const SettingsCard = ({ title, children }) => {
 const SettingsPage = () => {
   const { isTestMode, setIsTestMode } = useOutletContext();
   const [settings, setSettings] = useState({
-    ReportDirectory: '',
-    PromptDirectory: '',
-    ContextDirectory: '',
+    report_directory: '',
+    prompt_directory: '',
+    context_directory: '',
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const toast = useToast();
 
+  const saveButtonBg = useColorModeValue('gray.800', 'white');
+  const saveButtonColor = useColorModeValue('white', 'gray.800');
+  const saveButtonHoverBg = useColorModeValue('black', 'gray.200');
+
+
   const fetchData = useCallback(async (testMode) => {
     setLoading(true);
     setError('');
     try {
-      // // fix: them param test_mode vao API call
       const response = await axios.get('/api/system-settings', { params: { test_mode: testMode } });
-      setSettings(prev => ({ ...prev, ...response.data }));
+      setSettings(response.data || { report_directory: '', prompt_directory: '', context_directory: '' }); 
     } catch (err) {
       console.error(err);
       setError(`Failed to load system settings. Details: ${err.message}`);
@@ -78,7 +82,6 @@ const SettingsPage = () => {
     }
   }, [toast]);
 
-  // // effect nay se chay khi component mount va khi isTestMode thay doi
   useEffect(() => {
     fetchData(isTestMode);
   }, [fetchData, isTestMode]);
@@ -91,7 +94,6 @@ const SettingsPage = () => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // // fix: them param test_mode khi luu
       await axios.post('/api/system-settings', settings, { params: { test_mode: isTestMode } });
       toast({
         title: "Settings Saved",
@@ -139,11 +141,11 @@ const SettingsPage = () => {
                   <Icon as={AttachmentIcon} color="gray.500" />
                 </InputLeftElement>
                 <Input
-                  name="ReportDirectory"
-                  value={settings.ReportDirectory || ''}
+                  name="report_directory"
+                  value={settings.report_directory || ''}
                   onChange={handleInputChange}
                   placeholder="e.g., C:/analyzer/reports"
-                  isDisabled={loading || !!error}
+                  isDisabled={loading || !!error || isSaving}
                 />
               </InputGroup>
             </FormControl>
@@ -154,11 +156,11 @@ const SettingsPage = () => {
                   <Icon as={AttachmentIcon} color="gray.500" />
                 </InputLeftElement>
                 <Input
-                  name="PromptDirectory"
-                  value={settings.PromptDirectory || ''}
+                  name="prompt_directory"
+                  value={settings.prompt_directory || ''}
                   onChange={handleInputChange}
                   placeholder="e.g., backend/prompts"
-                  isDisabled={loading || !!error}
+                  isDisabled={loading || !!error || isSaving}
                 />
               </InputGroup>
             </FormControl>
@@ -169,11 +171,11 @@ const SettingsPage = () => {
                   <Icon as={AttachmentIcon} color="gray.500" />
                 </InputLeftElement>
                 <Input
-                  name="ContextDirectory"
-                  value={settings.ContextDirectory || ''}
+                  name="context_directory"
+                  value={settings.context_directory || ''}
                   onChange={handleInputChange}
                   placeholder="e.g., backend/Bonus_context"
-                  isDisabled={loading || !!error}
+                  isDisabled={loading || !!error || isSaving}
                 />
               </InputGroup>
             </FormControl>
@@ -193,7 +195,7 @@ const SettingsPage = () => {
                 colorScheme="blue"
                 isChecked={isTestMode}
                 onChange={(e) => setIsTestMode(e.target.checked)}
-                isDisabled={loading || !!error}
+                isDisabled={loading || !!error || isSaving}
               />
             </FormControl>
           </SettingsCard>
@@ -202,11 +204,13 @@ const SettingsPage = () => {
       
       <Box pt={4}>
         <Button
-          colorScheme="blue"
           onClick={handleSave}
           isLoading={isSaving}
           isDisabled={loading || !!error}
           leftIcon={<SettingsIcon />}
+          bg={saveButtonBg}
+          color={saveButtonColor}
+          _hover={{ bg: saveButtonHoverBg }}
         >
           Save Settings
         </Button>
