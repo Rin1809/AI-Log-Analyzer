@@ -3,7 +3,6 @@ import axios from 'axios';
 import { useOutletContext } from 'react-router-dom';
 import {
   Box,
-  SimpleGrid,
   Spinner,
   Alert,
   AlertIcon,
@@ -11,12 +10,56 @@ import {
   useDisclosure,
   useToast,
   VStack,
-  Center
+  Center,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Switch,
+  IconButton,
+  Tooltip,
+  useColorModeValue,
+  HStack,
+  Flex,
+  Text,
 } from '@chakra-ui/react';
-import HostCard from '../components/hosts/HostCard';
+import { EditIcon } from '@chakra-ui/icons';
 import ConfigEditorModal from '../components/hosts/ConfigEditorModal';
 
 const POLLING_INTERVAL = 15000;
+
+// // component con de render status badge cho gon
+const StatusBadge = ({ isEnabled }) => {
+  const onlineColor = useColorModeValue('green.500', 'green.400');
+  const offlineColor = useColorModeValue('red.500', 'red.400');
+  const onlineBg = useColorModeValue('green.100', 'green.800');
+  const offlineBg = useColorModeValue('red.100', 'red.800');
+
+  return (
+    <Flex
+      alignItems="center"
+      bg={isEnabled ? onlineBg : offlineBg}
+      color={isEnabled ? onlineColor : offlineColor}
+      borderRadius="full"
+      px={3}
+      py={1}
+      w="fit-content"
+    >
+      <Box
+        w="8px"
+        h="8px"
+        borderRadius="full"
+        bg={isEnabled ? onlineColor : offlineColor}
+        mr={2}
+      />
+      <Text fontSize="sm" fontWeight="medium" lineHeight="1">
+        {isEnabled ? 'Online' : 'Disabled'}
+      </Text>
+    </Flex>
+  );
+};
 
 const HostStatusPage = () => {
   const { isTestMode } = useOutletContext();
@@ -26,6 +69,9 @@ const HostStatusPage = () => {
   const [error, setError] = useState('');
   const toast = useToast();
   const { isOpen: isConfigModalOpen, onOpen: onConfigModalOpen, onClose: onConfigModalClose } = useDisclosure();
+
+  const cardBg = useColorModeValue('gray.50', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.700');
 
   const fetchData = useCallback(async (testMode) => {
     if (status.length === 0) setLoading(true);
@@ -93,20 +139,68 @@ const HostStatusPage = () => {
 
   return (
     <VStack spacing={6} align="stretch">
-      <Box>
-        <Heading size="lg" fontWeight="normal">Host Status</Heading>
+      <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
+        <Heading size="lg" fontWeight="normal" mb={4}>Host Status</Heading>
+        
+        <Table variant="simple">
+          <Thead>
+            <Tr>
+              <Th>Hostname</Th>
+              <Th>Status</Th>
+              <Th>Last Run</Th>
+              <Th>Actions</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {status.length > 0 ? (
+              status.map((fw) => (
+                <Tr key={fw.id}>
+                  <Td fontWeight="medium">{fw.hostname}</Td>
+                  <Td>
+                    <StatusBadge isEnabled={fw.is_enabled} />
+                  </Td>
+                  <Td fontSize="sm" color="gray.500">
+                    {fw.last_run !== 'Never' ? new Date(fw.last_run).toLocaleString() : 'Never'}
+                  </Td>
+                  <Td>
+                    <HStack spacing={2}>
+                      <Switch 
+                        size="md" 
+                        id={`switch-${fw.id}`} 
+                        isChecked={fw.is_enabled} 
+                        onChange={() => handleToggleStatus(fw.id)} 
+                        colorScheme="blue" 
+                      />
+                      {/* // fix: them bg va color de tooltip luon doc duoc */}
+                      <Tooltip 
+                        label="Edit Config" 
+                        placement="top"
+                        hasArrow
+                        bg="gray.600"
+                        color="white"
+                      >
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          icon={<EditIcon />}
+                          onClick={() => handleEditConfig(fw.id)}
+                          aria-label="Edit configuration"
+                        />
+                      </Tooltip>
+                    </HStack>
+                  </Td>
+                </Tr>
+              ))
+            ) : (
+              <Tr>
+                <Td colSpan={4} textAlign="center">
+                  No hosts configured.
+                </Td>
+              </Tr>
+            )}
+          </Tbody>
+        </Table>
       </Box>
-
-      <SimpleGrid columns={{ base: 1, md: 2, lg: 3, xl: 4 }} spacing={6}>
-        {status.map((fw) => (
-          <HostCard
-            key={fw.id}
-            fw={fw}
-            onToggleStatus={handleToggleStatus}
-            onEditConfig={handleEditConfig}
-          />
-        ))}
-      </SimpleGrid>
 
       <ConfigEditorModal
         isOpen={isConfigModalOpen}
