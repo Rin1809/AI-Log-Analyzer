@@ -3,10 +3,10 @@ import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import MainDashboard from './pages/MainDashboard';
-import FirewallStatusPage from './pages/FirewallStatusPage';
+import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
 
-// // custom theme de mac dinh la dark mode
+// custom theme de mac dinh la dark mode
 const theme = extendTheme({
   config: {
     initialColorMode: 'dark',
@@ -21,7 +21,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<MainDashboard />} />
-            <Route path="status" element={<FirewallStatusPage />} />
+            <Route path="status" element={<HostStatusPage />} />
             <Route path="reports" element={<ReportsPage />} />
           </Route>
         </Routes>

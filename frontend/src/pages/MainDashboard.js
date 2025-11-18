@@ -7,62 +7,15 @@ import {
   Spinner,
   Alert,
   AlertIcon,
-  Heading,
   useColorModeValue,
   VStack,
-  Text,
-  Flex,
   Center,
-  HStack,
 } from '@chakra-ui/react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import PieChartDisplay from '../components/dashboard/PieChartDisplay';
+import LineChartDisplay from '../components/dashboard/LineChartDisplay';
+import InfoCard from '../components/dashboard/InfoCard';
 
 const POLLING_INTERVAL = 30000;
-const COLORS = ['#3182CE', '#805AD5', '#D69E2E', '#38A169', '#DD6B20', '#00A3C4'];
-
-const ChartCard = ({ title, children }) => {
-    const cardBg = useColorModeValue('white', 'gray.800');
-    const borderColor = useColorModeValue('gray.200', 'gray.700');
-    return (
-        <Box
-            p={5}
-            shadow="md"
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            bg={cardBg}
-            h="350px"
-            transition="all 0.2s"
-            _hover={{ shadow: 'lg' }}
-        >
-            <Heading size="sm" mb={4} textAlign="center" fontWeight="semibold">
-                {title}
-            </Heading>
-            {children}
-        </Box>
-    );
-};
-
-const CustomLegend = ({ payload }) => {
-    const textColor = useColorModeValue('gray.600', 'gray.300');
-
-    if (!payload || payload.length === 0) {
-        return null;
-    }
-
-    return (
-        <VStack align="start" justify="center" h="100%" spacing={3}>
-            {payload.map((entry, index) => (
-                <HStack key={`item-${index}`} spacing={3}>
-                    <Box boxSize="12px" borderRadius="full" bg={entry.color} />
-                    <Text fontSize="sm" color={textColor}>
-                        {entry.value} ({entry.payload.payload.value})
-                    </Text>
-                </HStack>
-            ))}
-        </VStack>
-    );
-};
 
 const MainDashboard = () => {
     const { isTestMode } = useOutletContext();
@@ -72,16 +25,11 @@ const MainDashboard = () => {
     const [error, setError] = useState('');
     const isInitialLoad = useRef(true);
 
-    const borderColor = useColorModeValue('gray.200', 'gray.700');
-    const lineChartColor = useColorModeValue('gray.800', 'white');
-    const gridStrokeColor = useColorModeValue('gray.200', 'gray.700');
-    const tooltipBgColor = useColorModeValue('white', 'gray.800');
     const cardBg = useColorModeValue('white', 'gray.800');
+    const borderColor = useColorModeValue('gray.200', 'gray.700');
 
     const fetchData = useCallback(async (testMode) => {
-        if (isInitialLoad.current) {
-            setLoading(true);
-        }
+        if (isInitialLoad.current) setLoading(true);
         setError('');
         try {
             const apiParams = { params: { test_mode: testMode } };
@@ -114,10 +62,7 @@ const MainDashboard = () => {
         const active = statusData.filter(s => s.is_enabled).length;
         const inactive = statusData.length - active;
         if (active === 0 && inactive === 0) return [];
-        return [
-            { name: 'Active', value: active },
-            { name: 'Inactive', value: inactive },
-        ];
+        return [{ name: 'Active', value: active }, { name: 'Inactive', value: inactive }];
     }, [statusData]);
 
     const reportTypeData = useMemo(() => {
@@ -139,30 +84,39 @@ const MainDashboard = () => {
     }, [reports]);
 
     const lineChartData = useMemo(() => {
-        const allHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
+        const activeHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
         const periodicReports = reports.filter(r => r.type === 'periodic');
-        if (allHostnames.length === 0) return { data: [], keys: [] };
+        if (activeHostnames.length === 0 || periodicReports.length === 0) return { data: [], keys: [] };
 
-        const dataMap = new Map();
-        periodicReports.forEach(report => {
-            const timestamp = new Date(report.generated_time).toLocaleString();
-            const hostname = report.hostname;
-            const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
-            if (!dataMap.has(timestamp)) {
-                dataMap.set(timestamp, { time: timestamp });
+        // // logic fix: tao data lien tuc
+        const reportMap = new Map();
+        periodicReports.forEach(r => {
+            const timestamp = new Date(r.generated_time).getTime();
+            if (!reportMap.has(timestamp)) {
+                reportMap.set(timestamp, []);
             }
-            const point = dataMap.get(timestamp);
-            point[hostname] = (point[hostname] || 0) + logCount;
+            reportMap.get(timestamp).push(r);
         });
 
-        for (const point of dataMap.values()) {
-            allHostnames.forEach(key => {
-                if (point[key] === undefined) point[key] = 0;
-            });
-        }
+        const allTimestamps = [...new Set(periodicReports.map(r => new Date(r.generated_time).getTime()))].sort((a, b) => a - b);
+        
+        const lastValues = activeHostnames.reduce((acc, host) => {
+            acc[host] = 0;
+            return acc;
+        }, {});
 
-        const sortedData = Array.from(dataMap.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
-        return { data: sortedData.slice(-20), keys: allHostnames };
+        const finalData = allTimestamps.map(ts => {
+            const reportsAtTime = reportMap.get(ts) || [];
+            reportsAtTime.forEach(report => {
+                const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
+                lastValues[report.hostname] = logCount;
+            });
+            
+            const formattedTime = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return { time: formattedTime, ...lastValues };
+        });
+
+        return { data: finalData, keys: activeHostnames };
     }, [reports, statusData]);
 
     // --- Render logic ---
@@ -174,74 +128,16 @@ const MainDashboard = () => {
         return <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>;
     }
 
-    const renderPieChart = (data) => {
-        if (!data || data.length === 0) {
-            return <Center h="100%"><Text color="gray.500">No data to display.</Text></Center>;
-        }
-
-        return (
-            <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                    <Pie
-                        data={data}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        innerRadius="60%"
-                        outerRadius="80%"
-                        fill="#8884d8"
-                        paddingAngle={5}
-                        dataKey="value"
-                        nameKey="name"
-                    >
-                        {data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                    </Pie>
-                    <Legend
-                        content={CustomLegend}
-                        layout="vertical"
-                        verticalAlign="middle"
-                        align="right"
-                    />
-                </PieChart>
-            </ResponsiveContainer>
-        );
-    };
-
     return (
         <VStack spacing={6} align="stretch">
             <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
-                <ChartCard title="Host Status">{renderPieChart(hostStatusData)}</ChartCard>
-                <ChartCard title="Report Types">{renderPieChart(reportTypeData)}</ChartCard>
-                <ChartCard title="Reports by Host">{renderPieChart(reportsByHostData)}</ChartCard>
+                <InfoCard title="Host Status"><PieChartDisplay data={hostStatusData} /></InfoCard>
+                <InfoCard title="Report Types"><PieChartDisplay data={reportTypeData} /></InfoCard>
+                <InfoCard title="Reports by Host"><PieChartDisplay data={reportsByHostData} /></InfoCard>
             </SimpleGrid>
 
             <Box p={5} shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
-                <Heading size="md" mb={4} fontWeight="semibold">Total Logs Over Time</Heading>
-                {lineChartData.data.length > 0 && lineChartData.keys.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="90%">
-                        <LineChart data={lineChartData.data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={gridStrokeColor} />
-                            <XAxis dataKey="time" tick={{ fontSize: 12, fill: lineChartColor }} />
-                            <YAxis tick={{ fontSize: 12, fill: lineChartColor }} />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: tooltipBgColor,
-                                    borderColor: borderColor
-                                }}
-                            />
-                            <Legend />
-                            {lineChartData.keys.map((key, index) => (
-                                <Line key={key} type="monotone" dataKey={key} name={`${key}`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} />
-                            ))}
-                        </LineChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <Flex justify="center" align="center" h="100%" pb={10}>
-                        <Text color="gray.500">No periodic report data available to display chart.</Text>
-                    </Flex>
-                )}
+                <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
             </Box>
         </VStack>
     );
