@@ -11,10 +11,16 @@ const Layout = () => {
   return (
     <Flex minH="100vh" bg={bg}>
       <Sidebar />
-      <Box ml="60px" w="full" p={{ base: 4, md: 6 }}>
+      <Box ml="80px" w="full"> 
+        
+        
         <Header isTestMode={isTestMode} setIsTestMode={setIsTestMode} />
         
-        <Outlet context={{ isTestMode }} />
+    
+        <Box as="main" p={{ base: 4, md: 6 }}>
+          <Outlet context={{ isTestMode }} />
+        </Box>
+        
       </Box>
     </Flex>
   );

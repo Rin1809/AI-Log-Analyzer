@@ -46,12 +46,15 @@ const Header = ({ isTestMode, setIsTestMode }) => {
 
   return (
     <Box
+      as="header"
+      position="sticky" // ghim header
+      top="0"
+      zIndex="10" // Dam bao header luon o tren
       bg={headerBg}
       px={6}
-      py={3}
+      py={4} // chieu cao
       borderBottomWidth="1px"
       borderColor={borderColor}
-      mb={6}
     >
       <Flex h={12} alignItems="center" justifyContent="space-between">
         <HStack spacing={4} alignItems="center">

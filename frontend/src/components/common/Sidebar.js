@@ -35,13 +35,13 @@ const Sidebar = () => {
       top="0"
       left="0"
       h="100vh"
-      w="60px"
+      w="80px" // // fix: tang chieu rong
       bg={sidebarBg}
       borderRight="1px"
       borderColor={borderColor}
       zIndex="sticky"
     >
-      <VStack p={2} spacing={4} align="center" mt={4}>
+      <VStack p={2} spacing={5} align="center" mt={4}> {/* // fix: tang spacing */}
         <Box boxSize="40px" mb={4}>
            <Logo />
         </Box>
