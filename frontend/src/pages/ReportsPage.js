@@ -32,11 +32,10 @@ const ReportsPage = () => {
   const toast = useToast();
   const { isOpen: isReportModalOpen, onOpen: onReportModalOpen, onClose: onReportModalClose } = useDisclosure();
 
-  const cardBg = useColorModeValue('white', 'gray.800');
+  const cardBg = useColorModeValue('gray.50', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
   const fetchData = useCallback(async (testMode) => {
-    // // chi hien spinner khi load lan dau
     if (reports.length === 0) setLoading(true);
     setError('');
     try {
@@ -44,6 +43,7 @@ const ReportsPage = () => {
       const reportsRes = await axios.get('/api/reports', apiParams);
       setReports(reportsRes.data);
     } catch (err) {
+      // // fix: Thêm cặp ngoặc nhọn {} cho block catch
       console.error(err);
       setError(`Failed to connect to backend. Details: ${err.message}`);
     } finally {

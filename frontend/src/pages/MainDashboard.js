@@ -26,7 +26,7 @@ const MainDashboard = () => {
     const [error, setError] = useState('');
     const isInitialLoad = useRef(true);
 
-    const cardBg = useColorModeValue('white', 'gray.800');
+    const cardBg = useColorModeValue('gray.50', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
 
     const fetchData = useCallback(async (testMode) => {
@@ -146,7 +146,7 @@ const MainDashboard = () => {
             </SimpleGrid>
             
             <VStack align="stretch" spacing={3} mt={4}>
-                <Heading size="md" fontWeight="normal" textAlign="left">Periodic Log Analysis (by log count)</Heading>
+                <Heading size="md" fontWeight="normal" textAlign="left">Log Analysis (by log count)</Heading>
                 <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
                     <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
                 </Box>
