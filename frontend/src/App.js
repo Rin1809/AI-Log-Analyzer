@@ -6,11 +6,34 @@ import MainDashboard from './pages/MainDashboard';
 import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
 
-// custom theme de mac dinh la dark mode
+
 const theme = extendTheme({
   config: {
     initialColorMode: 'dark',
     useSystemColorMode: false,
+  },
+  colors: {
+    // override mau gray mac dinh
+    gray: {
+      50: '#ffffff',  
+      100: '#F5F5F5',
+      200: '#E5E5E5',
+      300: '#D4D4D4',
+      400: '#A3A3A3',
+      500: '#737373',
+      600: '#525252',
+      700: 'whiteAlpha.400', 
+      800: '#191919',   
+      900: '#191919',   
+    },
+  },
+  styles: {
+    global: (props) => ({
+      body: {
+        // dam bao mau chu luon de doc
+        color: props.colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800',
+      },
+    }),
   },
 });
 
