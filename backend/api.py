@@ -7,10 +7,9 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 
-# // tam fix: import module tu thu muc cha
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules import state_manager
@@ -24,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 app = FastAPI(
     title="AI-log-analyzer API",
     description="API để quản lý và giám sát tool phân tích log.",
-    version="2.3.0", # // version bump for log count feature
+    version="2.4.0", # // version bump for settings feature
 )
 
 # // @todo: config CORS chặt hơn cho production
@@ -47,7 +46,8 @@ def get_active_config_file(test_mode: bool) -> str:
 
 def get_config_parser(test_mode: bool = False) -> configparser.ConfigParser:
     """Doc va tra ve config parser object tu file config tuong ung."""
-    config_path = get_active_config_file(test_mode)
+    # // Luon doc config chinh (config.ini) cho system settings
+    config_path = CONFIG_FILE
     config = configparser.ConfigParser(interpolation=None)
     if not os.path.exists(config_path):
         raise HTTPException(status_code=500, detail=f"Config file not found: {config_path}")
@@ -73,12 +73,24 @@ class ReportInfo(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     content: str
 
+class SystemSettings(BaseModel):
+    ReportDirectory: Optional[str] = Field(None, alias='reportdirectory')
+    PromptDirectory: Optional[str] = Field(None, alias='promptdirectory')
+    ContextDirectory: Optional[str] = Field(None, alias='contextdirectory')
+
+    class Config:
+        allow_population_by_field_name = True
+
+
 # --- API Endpoints ---
 @app.get("/api/status", response_model=List[FirewallStatus])
 async def get_firewall_status(test_mode: bool = False):
     """Lay trang thai cua tat ca cac firewall duoc cau hinh."""
     try:
-        config = get_config_parser(test_mode)
+        # // phai doc dung file config test/prod cho status
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(get_active_config_file(test_mode))
+
         firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
         status_list = []
 
@@ -103,7 +115,10 @@ async def get_firewall_status(test_mode: bool = False):
 @app.post("/api/status/{firewall_id}/toggle", response_model=Dict[str, Any])
 async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
     """Bat/tat mot firewall host."""
-    config = get_config_parser(test_mode)
+    config_path = get_active_config_file(test_mode)
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(config_path)
+
     if firewall_id not in config:
         raise HTTPException(status_code=404, detail="Firewall ID not found")
 
@@ -111,7 +126,6 @@ async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
         current_state = config.getboolean(firewall_id, 'enabled', fallback=True)
         config.set(firewall_id, 'enabled', str(not current_state))
         
-        config_path = get_active_config_file(test_mode)
         with open(config_path, 'w') as configfile:
             config.write(configfile)
         
@@ -125,7 +139,9 @@ async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
 async def get_all_reports(test_mode: bool = False):
     """Quet, tra ve danh sach report va nhung luon summary_stats vao response."""
     try:
-        config = get_config_parser(test_mode)
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(get_active_config_file(test_mode))
+
         firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
         if not firewall_sections: return []
         
@@ -139,7 +155,14 @@ async def get_all_reports(test_mode: bool = False):
 
         for file_path in report_files:
             parts = file_path.split(os.sep)
-            firewall_id_from_path = parts[parts.index(report_dir.split(os.sep)[-1]) + 1]
+            # // logic nay co the sai neu ten report_dir co os.sep
+            try:
+                report_dir_base = os.path.basename(report_dir)
+                firewall_id_from_path = parts[parts.index(report_dir_base) + 1]
+            except (ValueError, IndexError):
+                # // fallback, neu ten folder khong giong config
+                firewall_id_from_path = "Unknown_Host"
+
 
             report_type = 'periodic'
             if 'summary' in file_path: report_type = 'summary'
@@ -152,7 +175,6 @@ async def get_all_reports(test_mode: bool = False):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     report_content = json.load(f)
                     report_summary_stats = report_content.get('summary_stats', {})
-                    # // fix: Them raw_log_count vao object summary_stats de frontend de xu ly
                     report_summary_stats['raw_log_count'] = report_content.get('raw_log_count', 0)
 
             except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
@@ -174,7 +196,10 @@ async def get_all_reports(test_mode: bool = False):
 @app.get("/api/config/{firewall_id}", response_model=Dict[str, str])
 async def get_firewall_config(firewall_id: str, test_mode: bool = False):
     """Lay noi dung config cua mot firewall."""
-    config = get_config_parser(test_mode)
+    config_path = get_active_config_file(test_mode)
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(config_path)
+
     if firewall_id not in config:
         raise HTTPException(status_code=404, detail="Firewall ID not found")
     
@@ -188,7 +213,9 @@ async def get_firewall_config(firewall_id: str, test_mode: bool = False):
 @app.post("/api/config/{firewall_id}", response_model=Dict[str, str])
 async def update_firewall_config(firewall_id: str, request: ConfigUpdateRequest, test_mode: bool = False):
     """Cap nhat config cho mot firewall. Ten section se duoc giu nguyen."""
-    config = get_config_parser(test_mode)
+    config_path = get_active_config_file(test_mode)
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(config_path)
     if firewall_id not in config:
         raise HTTPException(status_code=404, detail="Firewall ID not found")
     
@@ -204,7 +231,6 @@ async def update_firewall_config(firewall_id: str, request: ConfigUpdateRequest,
         for key, value in temp_parser.items(temp_section_name):
             config.set(firewall_id, key, value)
             
-        config_path = get_active_config_file(test_mode)
         with open(config_path, 'w') as configfile:
             config.write(configfile)
             
@@ -217,7 +243,9 @@ async def update_firewall_config(firewall_id: str, request: ConfigUpdateRequest,
 @app.get("/api/report-content", response_model=Dict[str, Any])
 async def get_report_content(path: str, test_mode: bool = False):
     """Doc va tra ve noi dung cua mot file report JSON."""
-    config = get_config_parser(test_mode)
+    config_path = get_active_config_file(test_mode)
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(config_path)
     firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
     if not firewall_sections:
         raise HTTPException(status_code=500, detail="No firewalls configured.")
@@ -239,6 +267,42 @@ async def get_report_content(path: str, test_mode: bool = False):
     except Exception as e:
         logging.error(f"Error reading report content from {path}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Could not read or parse report file: {e}")
+
+@app.get("/api/system-settings", response_model=SystemSettings)
+async def get_system_settings():
+    """Lay cac cau hinh chung tu section [System] cua file config.ini."""
+    try:
+        config = get_config_parser() # luon dung config.ini
+        if 'System' not in config:
+            return SystemSettings() # tra ve object rong neu ko co section
+        
+        settings_data = {key: value for key, value in config.items('System')}
+        return SystemSettings(**settings_data)
+    except Exception as e:
+        logging.error(f"Error getting system settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system-settings", response_model=Dict[str, str])
+async def update_system_settings(settings: SystemSettings):
+    """Cap nhat cau hinh trong section [System] cua config.ini."""
+    try:
+        config_path = CONFIG_FILE
+        config = get_config_parser()
+        if 'System' not in config:
+            config.add_section('System')
+        
+        update_data = settings.model_dump(by_alias=True, exclude_unset=True)
+        for key, value in update_data.items():
+            config.set('System', key, str(value))
+            
+        with open(config_path, 'w') as configfile:
+            config.write(configfile)
+            
+        return {"status": "success", "message": "System settings updated."}
+    except Exception as e:
+        logging.error(f"Error updating system settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save settings: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import MainDashboard from './pages/MainDashboard';
 import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
+import SettingsPage from './pages/SettingsPage'; 
 
 
 const theme = extendTheme({
@@ -46,6 +47,7 @@ function App() {
             <Route index element={<MainDashboard />} />
             <Route path="status" element={<HostStatusPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

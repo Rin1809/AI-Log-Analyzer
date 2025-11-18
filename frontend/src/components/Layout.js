@@ -6,6 +6,7 @@ import Header from './common/Header';
 
 const Layout = () => {
   const bg = useColorModeValue('gray.50', 'gray.900');
+  // // state nay van o day de chia se cho toan bo app
   const [isTestMode, setIsTestMode] = useState(false);
 
   return (
@@ -13,12 +14,10 @@ const Layout = () => {
       <Sidebar />
       <Box ml="80px" w="full"> 
         
+        <Header />
         
-        <Header isTestMode={isTestMode} setIsTestMode={setIsTestMode} />
-        
-    
         <Box as="main" p={{ base: 4, md: 6 }}>
-          <Outlet context={{ isTestMode }} />
+          <Outlet context={{ isTestMode, setIsTestMode }} />
         </Box>
         
       </Box>
