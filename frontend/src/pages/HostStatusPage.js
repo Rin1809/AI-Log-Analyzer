@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import {
   Box,
   Spinner,
   Alert,
   AlertIcon,
   Heading,
-  useDisclosure,
   useToast,
   VStack,
   Center,
@@ -24,13 +23,20 @@ import {
   HStack,
   Flex,
   Text,
+  Button,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
 } from '@chakra-ui/react';
-import { EditIcon } from '@chakra-ui/icons';
-import ConfigEditorModal from '../components/hosts/ConfigEditorModal';
+import { EditIcon, DeleteIcon, AddIcon } from '@chakra-ui/icons';
 
 const POLLING_INTERVAL = 15000;
 
-// // component con de render status badge cho gon
 const StatusBadge = ({ isEnabled }) => {
   const onlineColor = useColorModeValue('green.500', 'green.400');
   const offlineColor = useColorModeValue('red.500', 'red.400');
@@ -47,13 +53,7 @@ const StatusBadge = ({ isEnabled }) => {
       py={1}
       w="fit-content"
     >
-      <Box
-        w="8px"
-        h="8px"
-        borderRadius="full"
-        bg={isEnabled ? onlineColor : offlineColor}
-        mr={2}
-      />
+      <Box w="8px" h="8px" borderRadius="full" bg={isEnabled ? onlineColor : offlineColor} mr={2} />
       <Text fontSize="sm" fontWeight="medium" lineHeight="1">
         {isEnabled ? 'Online' : 'Disabled'}
       </Text>
@@ -63,14 +63,15 @@ const StatusBadge = ({ isEnabled }) => {
 
 const HostStatusPage = () => {
   const { isTestMode } = useOutletContext();
+  const navigate = useNavigate();
   const [status, setStatus] = useState([]);
-  const [selectedConfig, setSelectedConfig] = useState({ id: null, content: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [hostToDelete, setHostToDelete] = useState(null);
   const toast = useToast();
-  const { isOpen: isConfigModalOpen, onOpen: onConfigModalOpen, onClose: onConfigModalClose } = useDisclosure();
+  const { isOpen: isDeleteModalOpen, onOpen: onDeleteModalOpen, onClose: onDeleteModalClose } = useDisclosure();
 
-  const cardBg = useColorModeValue('gray.50', 'gray.800');
+  const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
   const fetchData = useCallback(async (testMode) => {
@@ -104,30 +105,25 @@ const HostStatusPage = () => {
       toast({ title: "Error", description: `Failed to toggle status. ${err.message}`, status: "error", duration: 5000, isClosable: true });
     }
   };
+  
+  const handleDeleteClick = (host) => {
+    setHostToDelete(host);
+    onDeleteModalOpen();
+  };
 
-  const handleEditConfig = async (firewallId) => {
+  const confirmDelete = async () => {
+    if (!hostToDelete) return;
     try {
-      const res = await axios.get(`/api/config/${firewallId}`, { params: { test_mode: isTestMode } });
-      setSelectedConfig({ id: firewallId, content: res.data.content });
-      onConfigModalOpen();
+      await axios.delete(`/api/hosts/${hostToDelete.id}`, { params: { test_mode: isTestMode }});
+      toast({ title: "Host Deleted", description: `${hostToDelete.hostname} has been deleted.`, status: "success", duration: 3000, isClosable: true });
+      fetchData(isTestMode);
     } catch (err) {
-      toast({ title: "Error", description: `Failed to load config. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: "Error", description: `Failed to delete host. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+    } finally {
+      onDeleteModalClose();
+      setHostToDelete(null);
     }
-  }
-
-  const handleSaveConfig = async () => {
-    if (!selectedConfig.id) return;
-    try {
-      await axios.post(`/api/config/${selectedConfig.id}`,
-        { content: selectedConfig.content },
-        { params: { test_mode: isTestMode } }
-      );
-      toast({ title: "Success", description: `Config for ${selectedConfig.id} saved.`, status: "success", duration: 3000, isClosable: true });
-      onConfigModalClose();
-    } catch (err) {
-      toast({ title: "Error", description: `Failed to save config. ${err.message}`, status: "error", duration: 5000, isClosable: true });
-    }
-  }
+  };
 
   if (loading) {
     return <Center h="80vh"><Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" /></Center>;
@@ -140,7 +136,12 @@ const HostStatusPage = () => {
   return (
     <VStack spacing={6} align="stretch">
       <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-        <Heading size="lg" fontWeight="normal" mb={4}>Host Status</Heading>
+        <Flex justify="space-between" align="center" mb={4}>
+          <Heading size="lg" fontWeight="normal">Host Status</Heading>
+          <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={() => navigate('/status/add')}>
+            Add Host
+          </Button>
+        </Flex>
         
         <Table variant="simple">
           <Thead>
@@ -148,6 +149,7 @@ const HostStatusPage = () => {
               <Th>Hostname</Th>
               <Th>Status</Th>
               <Th>Last Run</Th>
+              <Th>Enabled</Th>
               <Th>Actions</Th>
             </Tr>
           </Thead>
@@ -156,59 +158,48 @@ const HostStatusPage = () => {
               status.map((fw) => (
                 <Tr key={fw.id}>
                   <Td fontWeight="medium">{fw.hostname}</Td>
-                  <Td>
-                    <StatusBadge isEnabled={fw.is_enabled} />
-                  </Td>
+                  <Td><StatusBadge isEnabled={fw.is_enabled} /></Td>
                   <Td fontSize="sm" color="gray.500">
                     {fw.last_run !== 'Never' ? new Date(fw.last_run).toLocaleString() : 'Never'}
                   </Td>
                   <Td>
+                    <Switch size="md" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => handleToggleStatus(fw.id)} colorScheme="blue" />
+                  </Td>
+                  <Td>
                     <HStack spacing={2}>
-                      <Switch 
-                        size="md" 
-                        id={`switch-${fw.id}`} 
-                        isChecked={fw.is_enabled} 
-                        onChange={() => handleToggleStatus(fw.id)} 
-                        colorScheme="blue" 
-                      />
-                      {/* // fix: them bg va color de tooltip luon doc duoc */}
-                      <Tooltip 
-                        label="Edit Config" 
-                        placement="top"
-                        hasArrow
-                        bg="gray.600"
-                        color="white"
-                      >
-                        <IconButton
-                          size="sm"
-                          variant="ghost"
-                          icon={<EditIcon />}
-                          onClick={() => handleEditConfig(fw.id)}
-                          aria-label="Edit configuration"
-                        />
+                      <Tooltip label="Edit Host" placement="top" hasArrow bg="gray.600" color="white">
+                        <IconButton size="sm" variant="ghost" icon={<EditIcon />} onClick={() => navigate(`/status/edit/${fw.id}`)} />
+                      </Tooltip>
+                      <Tooltip label="Delete Host" placement="top" hasArrow bg="gray.600" color="white">
+                        <IconButton size="sm" variant="ghost" colorScheme="red" icon={<DeleteIcon />} onClick={() => handleDeleteClick(fw)} />
                       </Tooltip>
                     </HStack>
                   </Td>
                 </Tr>
               ))
             ) : (
-              <Tr>
-                <Td colSpan={4} textAlign="center">
-                  No hosts configured.
-                </Td>
-              </Tr>
+              <Tr><Td colSpan={5} textAlign="center">No hosts configured.</Td></Tr>
             )}
           </Tbody>
         </Table>
       </Box>
 
-      <ConfigEditorModal
-        isOpen={isConfigModalOpen}
-        onClose={onConfigModalClose}
-        selectedConfig={selectedConfig}
-        setSelectedConfig={setSelectedConfig}
-        onSave={handleSaveConfig}
-      />
+      {/* Delete Confirmation Modal */}
+      <Modal isOpen={isDeleteModalOpen} onClose={onDeleteModalClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Confirm Deletion</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            Are you sure you want to delete the host{' '}
+            <Text as="span" fontWeight="bold">{hostToDelete?.hostname}</Text>? This action cannot be undone.
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onDeleteModalClose}>Cancel</Button>
+            <Button colorScheme="red" onClick={confirmDelete}>Delete</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </VStack>
   );
 };

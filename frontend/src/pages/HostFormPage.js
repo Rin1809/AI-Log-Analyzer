@@ -1,0 +1,312 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
+import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
+import {
+  Box, Heading, VStack, Spinner, Alert, AlertIcon, useToast, useColorModeValue, Button,
+  FormControl, FormLabel, Input, Switch, Grid, GridItem, Text, Select, Radio, RadioGroup, Stack,
+  IconButton, Tag, TagLabel, TagCloseButton, Wrap, useDisclosure, Flex,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Center, HStack
+} from '@chakra-ui/react';
+import { ArrowBackIcon, AddIcon } from '@chakra-ui/icons';
+
+const FormCard = ({ title, children }) => {
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.700');
+  return (
+    <Box p={6} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg}>
+      <Heading size="md" fontWeight="normal" mb={5}>{title}</Heading>
+      <VStack spacing={4} align="stretch">{children}</VStack>
+    </Box>
+  );
+};
+
+const HostFormPage = () => {
+  const { isTestMode } = useOutletContext();
+  const { hostId } = useParams();
+  const navigate = useNavigate();
+  const isEditing = Boolean(hostId);
+  const toast = useToast();
+
+  const [formData, setFormData] = useState({
+    syshostname: '', logfile: '/var/log/filter.log',
+    run_interval_seconds: 3600, hourstoanalyze: 24, timezone: 'Asia/Ho_Chi_Minh',
+    recipientemails: '', geminiapikey: '', gemini_model: '',
+    summary_enabled: false, reports_per_summary: 10, summary_recipient_emails: '', summary_gemini_model: '',
+    final_summary_enabled: false, summaries_per_final_report: 4, final_summary_recipient_emails: '', final_summary_model: '',
+    networkdiagram: '', context_files: []
+  });
+
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [geminiModels, setGeminiModels] = useState({});
+  const [availableContextFiles, setAvailableContextFiles] = useState([]);
+  
+  // States for UI control
+  const [runIntervalType, setRunIntervalType] = useState('default');
+  const [hoursType, setHoursType] = useState('default');
+  const [emailInput, setEmailInput] = useState('');
+  const [currentEmailField, setCurrentEmailField] = useState(null);
+
+  const { isOpen: isEmailModalOpen, onOpen: onEmailModalOpen, onClose: onEmailModalClose } = useDisclosure();
+  
+  const fetchData = useCallback(async () => {
+    try {
+      const modelsRes = await axios.get('/api/gemini-models');
+      setGeminiModels(modelsRes.data);
+      const contextFilesRes = await axios.get('/api/context-files', { params: { test_mode: isTestMode }});
+      setAvailableContextFiles(contextFilesRes.data.map(f => `Bonus_context/${f}`));
+
+      if (isEditing) {
+        const hostRes = await axios.get(`/api/hosts/${hostId}`, { params: { test_mode: isTestMode } });
+        setFormData(prev => ({ ...prev, ...hostRes.data }));
+        if (hostRes.data.run_interval_seconds !== 3600) setRunIntervalType('custom');
+        if (hostRes.data.hourstoanalyze !== 24) setHoursType('custom');
+      } else {
+         // // set default model if available
+         const modelKeys = Object.keys(modelsRes.data);
+         if (modelKeys.length > 0) {
+            const defaultModel = modelsRes.data[modelKeys[0]];
+            setFormData(prev => ({
+                ...prev,
+                gemini_model: defaultModel,
+                summary_gemini_model: defaultModel,
+                final_summary_model: defaultModel
+            }));
+         }
+      }
+    } catch (err) {
+      setError(`Failed to load data. ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [hostId, isEditing, isTestMode]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' || type === 'radio' ? checked : value }));
+  };
+
+  const handleFileChange = async (e, fieldName) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadForm = new FormData();
+    uploadForm.append('file', file);
+    try {
+        const res = await axios.post('/api/upload/context', uploadForm, { params: { test_mode: isTestMode } });
+        setFormData(prev => ({ ...prev, [fieldName]: res.data.path }));
+        toast({ title: "Upload Success", description: `${res.data.filename} uploaded.`, status: 'success' });
+    } catch (err) {
+        toast({ title: "Upload Failed", description: err.response?.data?.detail || err.message, status: 'error' });
+    }
+  };
+
+  const handleContextFileToggle = (filePath) => {
+    setFormData(prev => {
+        const newContextFiles = prev.context_files.includes(filePath)
+            ? prev.context_files.filter(f => f !== filePath)
+            : [...prev.context_files, filePath];
+        return { ...prev, context_files: newContextFiles };
+    });
+  };
+
+  const openEmailModal = (field) => {
+    setCurrentEmailField(field);
+    onEmailModalOpen();
+  };
+
+  const handleAddEmail = () => {
+    if (emailInput && currentEmailField) {
+      const currentEmails = formData[currentEmailField] ? formData[currentEmailField].split(',') : [];
+      const newEmails = [...currentEmails, emailInput.trim()].filter(Boolean); // // remove empty
+      setFormData(prev => ({ ...prev, [currentEmailField]: newEmails.join(',') }));
+      setEmailInput('');
+    }
+  };
+
+  const handleRemoveEmail = (emailToRemove) => {
+    if (currentEmailField) {
+      const currentEmails = formData[currentEmailField].split(',');
+      const newEmails = currentEmails.filter(e => e !== emailToRemove);
+      setFormData(prev => ({ ...prev, [currentEmailField]: newEmails.join(',') }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.syshostname) {
+        toast({ title: "Error", description: "Hostname is required.", status: "error", duration: 3000, isClosable: true });
+        return;
+    }
+    setIsSaving(true);
+    try {
+        const payload = { ...formData };
+        if (isEditing) {
+            await axios.put(`/api/hosts/${hostId}`, payload, { params: { test_mode: isTestMode } });
+            toast({ title: "Host Updated", status: "success" });
+        } else {
+            await axios.post('/api/hosts', payload, { params: { test_mode: isTestMode } });
+            toast({ title: "Host Created", status: "success" });
+        }
+        navigate('/status');
+    } catch (err) {
+        toast({ title: "Error", description: err.response?.data?.detail || err.message, status: "error" });
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  if (loading) return <Center h="80vh"><Spinner size="xl" /></Center>;
+  if (error) return <Alert status="error"><AlertIcon />{error}</Alert>;
+
+  return (
+    <Box>
+      <VStack spacing={4} align="stretch" as="form" onSubmit={handleSubmit}>
+        <Flex align="center" mb={4}>
+          <IconButton icon={<ArrowBackIcon />} aria-label="Back to hosts" variant="ghost" onClick={() => navigate('/status')} mr={2} />
+          <Heading size="lg">{isEditing ? `Edit Host: ${formData.syshostname}` : 'Add New Host'}</Heading>
+        </Flex>
+
+        <Grid templateColumns={{ base: '1fr', lg: '1fr 1fr' }} gap={6}>
+            <GridItem><FormCard title="Basic Information">
+                <FormControl isRequired>
+                    <FormLabel fontSize="sm">Hostname</FormLabel>
+                    <Input name="syshostname" value={formData.syshostname} onChange={handleInputChange} isDisabled={isEditing}/>
+                </FormControl>
+                <FormControl>
+                    <FormLabel fontSize="sm">Log File Path</FormLabel>
+                    <Input name="logfile" value={formData.logfile} onChange={handleInputChange}/>
+                </FormControl>
+                <FormControl>
+                    <FormLabel fontSize="sm">Timezone</FormLabel>
+                    <Input name="timezone" value={formData.timezone} onChange={handleInputChange}/>
+                </FormControl>
+            </FormCard></GridItem>
+            
+            <GridItem><FormCard title="Analysis Schedule">
+                <FormControl>
+                    <FormLabel fontSize="sm">Run Interval (seconds)</FormLabel>
+                    <RadioGroup onChange={(val) => { setRunIntervalType(val); if(val === 'default') setFormData(p=>({...p, run_interval_seconds: 3600}))}} value={runIntervalType}>
+                        <Stack direction="row"><Radio value="default">Default (3600s)</Radio><Radio value="custom">Custom</Radio></Stack>
+                    </RadioGroup>
+                    {runIntervalType === 'custom' && <Input mt={2} type="number" name="run_interval_seconds" value={formData.run_interval_seconds} onChange={handleInputChange} />}
+                </FormControl>
+                <FormControl>
+                    <FormLabel fontSize="sm">Initial Scan (hours)</FormLabel>
+                    <RadioGroup onChange={(val) => { setHoursType(val); if(val === 'default') setFormData(p=>({...p, hourstoanalyze: 24}))}} value={hoursType}>
+                        <Stack direction="row"><Radio value="default">Default (24h)</Radio><Radio value="custom">Custom</Radio></Stack>
+                    </RadioGroup>
+                    {hoursType === 'custom' && <Input mt={2} type="number" name="hourstoanalyze" value={formData.hourstoanalyze} onChange={handleInputChange} />}
+                </FormControl>
+            </FormCard></GridItem>
+
+            <GridItem colSpan={{ base: 1, lg: 2 }}><FormCard title="AI Analysis (Gemini)">
+                <FormControl isRequired>
+                    <FormLabel fontSize="sm">Gemini API Key</FormLabel>
+                    <Input name="geminiapikey" type="password" value={formData.geminiapikey} onChange={handleInputChange}/>
+                </FormControl>
+                <FormControl>
+                    <FormLabel fontSize="sm">Periodic Report Model</FormLabel>
+                    <Select name="gemini_model" value={formData.gemini_model} onChange={handleInputChange}>
+                        {Object.entries(geminiModels).map(([name, id]) => <option key={id} value={id}>{name}</option>)}
+                    </Select>
+                </FormControl>
+            </FormCard></GridItem>
+
+            <GridItem colSpan={{ base: 1, lg: 2 }}><FormCard title="Periodic Report & Email">
+                 <Button size="sm" onClick={() => openEmailModal('recipientemails')}>Manage Recipient Emails</Button>
+                 <Text fontSize="xs" color="gray.500">Recipients: {formData.recipientemails || 'None'}</Text>
+            </FormCard></GridItem>
+            
+            <GridItem><FormCard title="Summary Report">
+                <FormControl display="flex" alignItems="center">
+                    <FormLabel htmlFor="summary-enabled" mb="0">Enable Summary</FormLabel>
+                    <Switch id="summary-enabled" isChecked={formData.summary_enabled} onChange={(e) => setFormData(p=>({...p, summary_enabled: e.target.checked}))} />
+                </FormControl>
+                {formData.summary_enabled && <>
+                    <FormControl><FormLabel fontSize="sm">Reports per Summary</FormLabel><Input type="number" name="reports_per_summary" value={formData.reports_per_summary} onChange={handleInputChange}/></FormControl>
+                    <FormControl><FormLabel fontSize="sm">Summary Gemini Model</FormLabel>
+                        <Select name="summary_gemini_model" value={formData.summary_gemini_model} onChange={handleInputChange}>
+                            {Object.entries(geminiModels).map(([name, id]) => <option key={id} value={id}>{name}</option>)}
+                        </Select>
+                    </FormControl>
+                    <Button size="sm" onClick={() => openEmailModal('summary_recipient_emails')}>Manage Summary Emails</Button>
+                    <Text fontSize="xs" color="gray.500">Recipients: {formData.summary_recipient_emails || 'None'}</Text>
+                </>}
+            </FormCard></GridItem>
+
+            <GridItem><FormCard title="Final Summary Report">
+                <FormControl display="flex" alignItems="center">
+                    <FormLabel htmlFor="final-enabled" mb="0">Enable Final Summary</FormLabel>
+                    <Switch id="final-enabled" isChecked={formData.final_summary_enabled} onChange={(e) => setFormData(p=>({...p, final_summary_enabled: e.target.checked}))} />
+                </FormControl>
+                {formData.final_summary_enabled && <>
+                    <FormControl><FormLabel fontSize="sm">Summaries per Final Report</FormLabel><Input type="number" name="summaries_per_final_report" value={formData.summaries_per_final_report} onChange={handleInputChange}/></FormControl>
+                    <FormControl><FormLabel fontSize="sm">Final Summary Model</FormLabel>
+                        <Select name="final_summary_model" value={formData.final_summary_model} onChange={handleInputChange}>
+                            {Object.entries(geminiModels).map(([name, id]) => <option key={id} value={id}>{name}</option>)}
+                        </Select>
+                    </FormControl>
+                    <Button size="sm" onClick={() => openEmailModal('final_summary_recipient_emails')}>Manage Final Summary Emails</Button>
+                    <Text fontSize="xs" color="gray.500">Recipients: {formData.final_summary_recipient_emails || 'None'}</Text>
+                </>}
+            </FormCard></GridItem>
+
+            <GridItem colSpan={{ base: 1, lg: 2 }}><FormCard title="Bonus Context">
+                 <FormControl>
+                    <FormLabel fontSize="sm">Network Diagram</FormLabel>
+                    <Input type="file" onChange={(e) => handleFileChange(e, 'networkdiagram')} accept="image/png, image/jpeg, image/svg+xml" p={1} />
+                    {formData.networkdiagram && <Text fontSize="xs" color="gray.500" mt={1}>Current: {formData.networkdiagram}</Text>}
+                 </FormControl>
+                 <FormControl>
+                    <FormLabel fontSize="sm">Select Context Files</FormLabel>
+                    <VStack align="stretch" p={3} borderWidth={1} borderRadius="md" maxH="200px" overflowY="auto">
+                        {availableContextFiles.map(file => (
+                            <Switch key={file} isChecked={formData.context_files.includes(file)} onChange={() => handleContextFileToggle(file)}>
+                                {file.split('/').pop()}
+                            </Switch>
+                        ))}
+                    </VStack>
+                 </FormControl>
+            </FormCard></GridItem>
+        </Grid>
+        
+        <Box pt={4}>
+          <Button type="submit" isLoading={isSaving} colorScheme="blue">Save Host</Button>
+        </Box>
+      </VStack>
+
+      <Modal isOpen={isEmailModalOpen} onClose={onEmailModalClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Manage Emails for {currentEmailField}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <HStack mb={4}>
+                <Input placeholder="new.email@example.com" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
+                <IconButton icon={<AddIcon />} aria-label="Add email" onClick={handleAddEmail} />
+            </HStack>
+            <Wrap>
+                {(formData[currentEmailField] || '').split(',').filter(Boolean).map(email => (
+                    <Tag key={email} size="md" borderRadius="full" variant="solid" colorScheme="blue">
+                        <TagLabel>{email}</TagLabel>
+                        <TagCloseButton onClick={() => handleRemoveEmail(email)} />
+                    </Tag>
+                ))}
+            </Wrap>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onEmailModalClose}>Done</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+    </Box>
+  );
+};
+
+export default HostFormPage;

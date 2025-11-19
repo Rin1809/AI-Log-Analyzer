@@ -6,7 +6,7 @@ import MainDashboard from './pages/MainDashboard';
 import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage'; 
-
+import HostFormPage from './pages/HostFormPage'; // // import trang moi
 
 const theme = extendTheme({
   config: {
@@ -14,7 +14,6 @@ const theme = extendTheme({
     useSystemColorMode: false,
   },
   colors: {
-    // override mau gray mac dinh
     gray: {
       50: '#ffffff',  
       100: '#F5F5F5',
@@ -45,7 +44,6 @@ const theme = extendTheme({
   styles: {
     global: (props) => ({
       body: {
-        // dam bao mau chu luon de doc
         color: props.colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800',
       },
     }),
@@ -60,6 +58,9 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<MainDashboard />} />
             <Route path="status" element={<HostStatusPage />} />
+            {/* // route cho trang add/edit */}
+            <Route path="status/add" element={<HostFormPage />} />
+            <Route path="status/edit/:hostId" element={<HostFormPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
