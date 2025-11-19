@@ -9,7 +9,6 @@ import {
   Heading,
   useToast,
   VStack,
-  Center,
   Table,
   Thead,
   Tbody,
@@ -38,13 +37,13 @@ import {
   Menu,
   MenuButton,
   MenuList,
-  MenuItem
+  MenuItem,
+  Center
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
 
 const POLLING_INTERVAL = 15000;
 
-// Custom 3-dots icon for Menu
 const ThreeDotsIcon = (props) => (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
         <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
@@ -111,10 +110,10 @@ const HostStatusPage = () => {
     return () => clearInterval(intervalId);
   }, [fetchData, isTestMode]);
 
-  const handleToggleStatus = async (firewallId) => {
+  const handleToggleStatus = async (hostId) => {
     try {
-      await axios.post(`/api/status/${firewallId}/toggle`, {}, { params: { test_mode: isTestMode } });
-      toast({ title: "Success", description: `Status for ${firewallId} toggled.`, status: "success", duration: 3000, isClosable: true });
+      await axios.post(`/api/status/${hostId}/toggle`, {}, { params: { test_mode: isTestMode } });
+      toast({ title: "Success", description: `Status for ${hostId} toggled.`, status: "success", duration: 3000, isClosable: true });
       fetchData(isTestMode);
     } catch (err) {
       toast({ title: "Error", description: `Failed to toggle status. ${err.message}`, status: "error", duration: 5000, isClosable: true });
@@ -197,15 +196,15 @@ const HostStatusPage = () => {
           </Thead>
           <Tbody>
             {filteredStatus.length > 0 ? (
-              filteredStatus.map((fw) => (
-                <Tr key={fw.id}>
-                  <Td fontWeight="medium">{fw.hostname}</Td>
-                  <Td><StatusBadge isEnabled={fw.is_enabled} /></Td>
+              filteredStatus.map((host) => (
+                <Tr key={host.id}>
+                  <Td fontWeight="medium">{host.hostname}</Td>
+                  <Td><StatusBadge isEnabled={host.is_enabled} /></Td>
                   <Td fontSize="sm" color="gray.500">
-                    {fw.last_run !== 'Never' ? new Date(fw.last_run).toLocaleString() : 'Never'}
+                    {host.last_run !== 'Never' ? new Date(host.last_run).toLocaleString() : 'Never'}
                   </Td>
                   <Td>
-                    <Switch size="md" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => handleToggleStatus(fw.id)} colorScheme="blue" />
+                    <Switch size="md" id={`switch-${host.id}`} isChecked={host.is_enabled} onChange={() => handleToggleStatus(host.id)} colorScheme="blue" />
                   </Td>
                   <Td>
                     <Menu>
@@ -217,10 +216,10 @@ const HostStatusPage = () => {
                             aria-label="Options"
                         />
                         <MenuList>
-                            <MenuItem icon={<EditIcon />} onClick={() => navigate(`/status/edit/${fw.id}`)}>
+                            <MenuItem icon={<EditIcon />} onClick={() => navigate(`/status/edit/${host.id}`)}>
                                 Edit Configuration
                             </MenuItem>
-                            <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleDeleteClick(fw)}>
+                            <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleDeleteClick(host)}>
                                 Delete Host
                             </MenuItem>
                         </MenuList>

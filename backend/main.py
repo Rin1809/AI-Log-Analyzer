@@ -90,9 +90,14 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
     except: pass
 
     report_data = {
-        "hostname": hostname, "analysis_start_time": start_time.isoformat(), "analysis_end_time": end_time.isoformat(),
+        "hostname": hostname, 
+        "analysis_start_time": start_time.isoformat(), 
+        "analysis_end_time": end_time.isoformat(),
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "raw_log_count": log_count, "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown
+        "raw_log_count": log_count, 
+        "summary_stats": summary_data, 
+        "analysis_details_markdown": analysis_markdown,
+        "stage_index": 0 
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
@@ -182,11 +187,14 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     except: pass
     
     report_data = {
-        "hostname": hostname, "analysis_start_time": start_time.isoformat() if start_time else "N/A",
+        "hostname": hostname, 
+        "analysis_start_time": start_time.isoformat() if start_time else "N/A",
         "analysis_end_time": end_time.isoformat() if end_time else "N/A",
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "summary_stats": stats, "analysis_details_markdown": result_md,
-        "source_reports": reports_to_process
+        "summary_stats": stats, 
+        "analysis_details_markdown": result_md,
+        "source_reports": reports_to_process,
+        "stage_index": current_stage_idx # // THEM STAGE INDEX
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)

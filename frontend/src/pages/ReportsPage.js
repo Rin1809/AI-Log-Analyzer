@@ -96,36 +96,30 @@ const ReportsPage = () => {
   // --- Main Filtering Logic ---
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
-      // 1. Hostname
       const hostnameMatch = report.hostname.toLowerCase().includes(filters.hostname.toLowerCase());
       
-      // 2. Type
       const typeMatch = filters.type ? report.type === filters.type : true;
       
-      // 3. Status
       const statusMatch = checkStatus(report.summary_stats, filters.status);
 
-      // 4. Date Range
       const dateMatch = checkDateRange(report.generated_time, filters.startDate, filters.endDate);
 
       return hostnameMatch && typeMatch && statusMatch && dateMatch;
     });
   }, [reports, filters]);
 
-  // Extract Unique Types for Dropdown
   const uniqueTypes = useMemo(() => {
       const types = new Set(reports.map(r => r.type));
       return Array.from(types).sort();
   }, [reports]);
 
   useEffect(() => {
-    setCurrentPage(1); // Reset page when filters change
+    setCurrentPage(1); 
   }, [filters]);
 
   const totalPages = Math.ceil(filteredReports.length / REPORTS_PER_PAGE);
   const currentReports = filteredReports.slice((currentPage - 1) * REPORTS_PER_PAGE, currentPage * REPORTS_PER_PAGE);
 
-  // --- Action Handlers ---
 
   const handleViewRaw = async (reportPath) => {
     try {
@@ -156,7 +150,6 @@ const ReportsPage = () => {
   };
 
   const handleDownload = async (reportPath) => {
-      // // Use raw browser navigation/link to trigger download via backend
       const url = `http://127.0.0.1:8000/api/reports/download?path=${encodeURIComponent(reportPath)}`;
       window.open(url, '_blank');
   };

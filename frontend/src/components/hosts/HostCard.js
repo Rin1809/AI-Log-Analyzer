@@ -15,7 +15,7 @@ import {
 } from '@chakra-ui/react';
 import { EditIcon } from '@chakra-ui/icons';
 
-const HostCard = ({ fw, onToggleStatus, onEditConfig }) => {
+const HostCard = ({ host, onToggleStatus, onEditConfig }) => {
   const cardBg = useColorModeValue('gray.50', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
@@ -31,23 +31,23 @@ const HostCard = ({ fw, onToggleStatus, onEditConfig }) => {
     >
       <VStack align="stretch" spacing={4}>
         <HStack justify="space-between">
-          <Heading size="md" isTruncated title={fw.hostname}>{fw.hostname}</Heading>
-          <Badge colorScheme={fw.is_enabled ? 'green' : 'red'} variant="solid" fontSize="0.7em">{fw.status}</Badge>
+          <Heading size="md" isTruncated title={host.hostname}>{host.hostname}</Heading>
+          <Badge colorScheme={host.is_enabled ? 'green' : 'red'} variant="solid" fontSize="0.7em">{host.status}</Badge>
         </HStack>
         <Text fontSize="xs" color="gray.500" minHeight="3em">
-          Last run: {fw.last_run !== 'Never' ? new Date(fw.last_run).toLocaleString() : 'Never'}
+          Last run: {host.last_run !== 'Never' ? new Date(host.last_run).toLocaleString() : 'Never'}
         </Text>
         <HStack justify="space-between" mt={2}>
           <FormControl display="flex" alignItems="center">
-            <FormLabel htmlFor={`switch-${fw.id}`} mb="0" fontSize="sm" mr={2}>Enabled</FormLabel>
-            <Switch size="sm" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => onToggleStatus(fw.id)} colorScheme="blue" />
+            <FormLabel htmlFor={`switch-${host.id}`} mb="0" fontSize="sm" mr={2}>Enabled</FormLabel>
+            <Switch size="sm" id={`switch-${host.id}`} isChecked={host.is_enabled} onChange={() => onToggleStatus(host.id)} colorScheme="blue" />
           </FormControl>
           <Tooltip label="Edit Config" placement="top">
             <IconButton
               size="sm"
               variant="ghost"
               icon={<EditIcon />}
-              onClick={() => onEditConfig(fw.id)}
+              onClick={() => onEditConfig(host.id)}
               aria-label="Edit configuration"
             />
           </Tooltip>

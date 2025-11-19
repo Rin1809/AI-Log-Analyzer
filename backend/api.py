@@ -16,6 +16,8 @@ from typing import List, Dict, Any, Optional
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules import state_manager
+# Import slugify de dong bo logic ten thu muc
+from modules.report_generator import slugify
 
 # --- config ---
 CONFIG_FILE = "config.ini"
@@ -27,7 +29,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.3.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.4.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -71,6 +73,7 @@ class ReportInfo(BaseModel):
     type: str
     generated_time: str
     summary_stats: Optional[Dict[str, Any]] = None
+    stage_index: Optional[int] = None
 
 class SmtpProfile(BaseModel):
     profile_name: str
@@ -132,7 +135,6 @@ async def get_host_status(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read(get_active_config_file(test_mode))
-        # // Ho tro ca prefix cu (Firewall_) va moi (Host_)
         host_sections = [s for s in config.sections() if s.startswith(('Firewall_', 'Host_'))]
         status_list = []
         for section in host_sections:
@@ -197,6 +199,41 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
     config.read(config_path)
     if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     
+    # --- Logic doi ten thu muc neu ten Stage thay doi (KISS approach) ---
+    try:
+        old_pipeline_json = config.get(host_id, 'pipeline_config', fallback='[]')
+        old_pipeline = json.loads(old_pipeline_json)
+        new_pipeline = host_config.pipeline
+        
+        sys_settings = get_system_config_parser(test_mode)
+        base_report_dir = sys_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
+        host_report_dir = os.path.join(base_report_dir, host_id)
+
+        # Duyet qua cac stage theo index. Neu index ton tai o ca 2 ma ten khac nhau -> Rename folder
+        if os.path.exists(host_report_dir):
+            for i, new_stage in enumerate(new_pipeline):
+                if i < len(old_pipeline):
+                    old_name = old_pipeline[i].get('name')
+                    new_name = new_stage.name
+                    
+                    if old_name and new_name and old_name != new_name:
+                        old_slug = slugify(old_name)
+                        new_slug = slugify(new_name)
+                        
+                        if old_slug != new_slug:
+                            old_path = os.path.join(host_report_dir, old_slug)
+                            new_path = os.path.join(host_report_dir, new_slug)
+                            
+                            if os.path.exists(old_path):
+                                try:
+                                    os.rename(old_path, new_path)
+                                    logging.info(f"Renamed report folder: {old_slug} -> {new_slug}")
+                                except Exception as e:
+                                    logging.error(f"Failed to rename folder {old_slug} to {new_slug}: {e}")
+    except Exception as e:
+        logging.error(f"Error during directory rename check: {e}")
+    # ---------------------------------------------------------------------
+
     old_enabled = config.get(host_id, 'enabled', fallback='True')
     config.remove_section(host_id)
     config.add_section(host_id)
@@ -268,30 +305,33 @@ async def get_all_reports(test_mode: bool = False):
         
         if not os.path.isdir(report_dir): return []
         
-        # Map ID -> Hostname. Ho tro ca prefix cu va moi
         hostname_map = {s: config.get(s, 'SysHostname', fallback=s) for s in config.sections() if s.startswith(('Firewall_', 'Host_'))}
         reports = []
-        # Glob khong ho tro OR pattern trong path de dang, nen phai quet 2 lan hoac quet all roi loc
-        # O day quet tat ca subfolder
         files = glob.glob(os.path.join(report_dir, '*', '**', '*.json'), recursive=True)
         files.sort(key=os.path.getmtime, reverse=True)
         
         for file_path in files:
             try:
                 parts = os.path.normpath(file_path).split(os.sep)
-                # // Tim folder ID trong path. Chap nhan ca Firewall_ va Host_
                 host_id = next((p for p in parts if p.startswith(('Firewall_', 'Host_'))), None)
-                
                 if not host_id: continue 
+
+                inferred_type = parts[-3] if len(parts) >= 3 else 'unknown'
 
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = json.load(f)
-                r_type = content.get('report_type', 'unknown')
+                
+                # Fallback neu path parse loi, nhung uu tien path (folder name)
+                # vi path la source of truth sau khi rename
+                r_type = inferred_type if inferred_type != 'unknown' else content.get('report_type', 'unknown')
+
                 reports.append(ReportInfo(
                     filename=os.path.basename(file_path), path=file_path,
-                    hostname=hostname_map.get(host_id, host_id), type=r_type,
+                    hostname=hostname_map.get(host_id, host_id), 
+                    type=r_type,
                     generated_time=datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
-                    summary_stats=content.get('summary_stats', {})
+                    summary_stats=content.get('summary_stats', {}),
+                    stage_index=content.get('stage_index', None)
                 ))
             except: pass
         return reports
@@ -318,7 +358,6 @@ async def download_report(path: str):
 
 @app.get("/api/reports/preview", response_model=Dict)
 async def preview_report_email(path: str, test_mode: bool = False):
-    # // Logic nay tai su dung logic cua main.py de render HTML
     if not os.path.exists(path): raise HTTPException(404, "Report file not found")
     
     try:
@@ -327,7 +366,9 @@ async def preview_report_email(path: str, test_mode: bool = False):
         system_settings = get_system_config_parser(test_mode)
         prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
         
+        # // Logic tim template dua tren folder hoac type
         r_type = data.get('report_type', 'unknown')
+        # Quick check: neu folder/type co chua chu 'summary' thi dung template summary
         is_summary = 'summary' in r_type.lower()
         
         if is_summary:
@@ -347,7 +388,6 @@ async def preview_report_email(path: str, test_mode: bool = False):
         md_content = data.get('analysis_details_markdown', '')
         html_analysis = markdown.markdown(md_content)
         
-        # Safe date parsing
         st_str = data.get('analysis_start_time', '')
         et_str = data.get('analysis_end_time', '')
         try:
