@@ -4,10 +4,12 @@ import json
 import configparser
 import logging
 import shutil
+import markdown
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Dict, Any, Optional
 
@@ -25,7 +27,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.0.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.1.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -52,7 +54,7 @@ class PipelineStage(BaseModel):
     model: str
     prompt_file: str
     recipient_emails: str = ""
-    trigger_threshold: int = 1  # For stage > 0. Stage 0 uses time interval.
+    trigger_threshold: int = 1
 
 class FirewallStatus(BaseModel):
     id: str
@@ -96,7 +98,7 @@ class HostConfig(BaseModel):
     networkdiagram: str
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
-    pipeline: List[PipelineStage] = [] # Dynamic pipeline
+    pipeline: List[PipelineStage] = []
 
 # --- Helper Functions ---
 def get_firewall_id(hostname: str) -> str:
@@ -106,19 +108,16 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     if not config.has_section(section): return {}
     config_dict = dict(config.items(section))
     
-    # Parse Context Files
     standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
     context_keys = [key for key in config.options(section) if key not in standard_keys and not key.startswith('context_file_')]
     config_dict['context_files'] = [config.get(section, key) for key in context_keys]
 
-    # Parse Pipeline Config (stored as JSON string)
     pipeline_json = config.get(section, 'pipeline_config', fallback='[]')
     try:
         config_dict['pipeline'] = json.loads(pipeline_json)
     except json.JSONDecodeError:
         config_dict['pipeline'] = []
 
-    # Convert ints
     for key in ['run_interval_seconds', 'hourstoanalyze']:
         if key in config_dict:
              try: config_dict[key] = int(config_dict[key])
@@ -127,6 +126,9 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     return config_dict
 
 # --- API Endpoints ---
+
+# ... (Status/Host APIs giu nguyen - luoc bot cho gon, chi show thay doi) ...
+
 @app.get("/api/status", response_model=List[FirewallStatus])
 async def get_firewall_status(test_mode: bool = False):
     try:
@@ -179,21 +181,13 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
     if config.has_section(firewall_id): raise HTTPException(status_code=409, detail="Host exists")
     
     config.add_section(firewall_id)
-    
-    # Basic fields
     for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
         config.set(firewall_id, key, str(value))
-        
-    # Context files
     for i, file_path in enumerate(host_config.context_files, 1):
         config.set(firewall_id, f'context_file_{i}', file_path)
-        
-    # Pipeline JSON
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
     config.set(firewall_id, 'pipeline_config', pipeline_json)
-    
     config.set(firewall_id, 'enabled', 'True')
-    
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "success"}
 
@@ -204,7 +198,6 @@ async def update_host(firewall_id: str, host_config: HostConfig, test_mode: bool
     config.read(config_path)
     if not config.has_section(firewall_id): raise HTTPException(status_code=404, detail="Host not found")
     
-    # Clear old keys to be safe (except enabled)
     old_enabled = config.get(firewall_id, 'enabled', fallback='True')
     config.remove_section(firewall_id)
     config.add_section(firewall_id)
@@ -212,10 +205,8 @@ async def update_host(firewall_id: str, host_config: HostConfig, test_mode: bool
     
     for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
         config.set(firewall_id, key, str(value))
-        
     for i, file_path in enumerate(host_config.context_files, 1):
         config.set(firewall_id, f'context_file_{i}', file_path)
-
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
     config.set(firewall_id, 'pipeline_config', pipeline_json)
         
@@ -232,7 +223,6 @@ async def delete_host(firewall_id: str, test_mode: bool = False):
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "deleted"}
 
-# --- Utils / Models / Files ---
 @app.get("/api/gemini-models", response_model=Dict[str, str])
 async def get_gemini_models():
     if not os.path.exists(MODEL_LIST_FILE): return {}
@@ -266,22 +256,20 @@ async def delete_context_file(filename: str, test_mode: bool = False):
     if os.path.exists(path): os.remove(path)
     return {"status": "deleted"}
 
+# --- Reports APIs ---
+
 @app.get("/api/reports", response_model=List[ReportInfo])
 async def get_all_reports(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read(get_active_config_file(test_mode))
         system_settings = get_system_config_parser(test_mode)
-        
-        # FIX: Logic fallback an toan hon. 
-        # Neu test_mode=False ma ko co setting, mac dinh la 'reports', ko phai 'test_reports'
         default_report_dir = 'test_reports' if test_mode else 'reports'
         report_dir = system_settings.get('System', 'report_directory', fallback=default_report_dir)
         
         if not os.path.isdir(report_dir): return []
         
         hostname_map = {s: config.get(s, 'SysHostname', fallback=s) for s in config.sections() if s.startswith('Firewall_')}
-        
         reports = []
         files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
         files.sort(key=os.path.getmtime, reverse=True)
@@ -293,13 +281,7 @@ async def get_all_reports(test_mode: bool = False):
                 
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = json.load(f)
-                    
                 r_type = content.get('report_type', 'unknown')
-                if r_type == 'unknown':
-                    if 'summary' in file_path.lower(): r_type = 'summary'
-                    elif 'final' in file_path.lower(): r_type = 'final'
-                    else: r_type = 'periodic'
-
                 reports.append(ReportInfo(
                     filename=os.path.basename(file_path), path=file_path,
                     hostname=hostname_map.get(fw_id, fw_id), type=r_type,
@@ -312,8 +294,96 @@ async def get_all_reports(test_mode: bool = False):
 
 @app.get("/api/report-content", response_model=Dict)
 async def get_report_content(path: str):
-    if not os.path.exists(path): raise HTTPException(404)
+    if not os.path.exists(path): raise HTTPException(404, "Report file not found")
     with open(path, 'r', encoding='utf-8') as f: return json.load(f)
+
+@app.delete("/api/reports", response_model=Dict)
+async def delete_report(path: str):
+    if not os.path.exists(path): raise HTTPException(404, "Report file not found")
+    try:
+        os.remove(path)
+        return {"status": "deleted", "path": path}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete report: {str(e)}")
+
+@app.get("/api/reports/download")
+async def download_report(path: str):
+    if not os.path.exists(path): raise HTTPException(404, "Report file not found")
+    return FileResponse(path=path, filename=os.path.basename(path), media_type='application/json')
+
+@app.get("/api/reports/preview", response_model=Dict)
+async def preview_report_email(path: str, test_mode: bool = False):
+    # // Logic nay tai su dung logic cua main.py de render HTML
+    if not os.path.exists(path): raise HTTPException(404, "Report file not found")
+    
+    try:
+        with open(path, 'r', encoding='utf-8') as f: data = json.load(f)
+        
+        system_settings = get_system_config_parser(test_mode)
+        prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
+        
+        # Determine template
+        r_type = data.get('report_type', 'unknown')
+        is_summary = 'summary' in r_type.lower()
+        
+        # Path resolution for templates (assume relative to backend root/prompts)
+        if is_summary:
+            tpl_path = os.path.join(prompt_dir, '..', 'summary_email_template.html')
+            if not os.path.exists(tpl_path): tpl_path = os.path.join('summary_email_template.html')
+        else:
+            tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
+            if not os.path.exists(tpl_path): tpl_path = os.path.join('email_template.html')
+            
+        if not os.path.exists(tpl_path): 
+            return {"html": f"<h1>Error</h1><p>Template not found at {tpl_path}</p>"}
+
+        with open(tpl_path, 'r', encoding='utf-8') as f: template = f.read()
+
+        stats = data.get('summary_stats', {})
+        hostname = data.get('hostname', 'Unknown')
+        md_content = data.get('analysis_details_markdown', '')
+        html_analysis = markdown.markdown(md_content)
+        
+        # Safe date parsing
+        st_str = data.get('analysis_start_time', '')
+        et_str = data.get('analysis_end_time', '')
+        try:
+            st = datetime.fromisoformat(st_str).strftime('%H:%M %d-%m')
+            et = datetime.fromisoformat(et_str).strftime('%H:%M %d-%m')
+        except:
+            st, et = "?", "?"
+
+        # Mapping keys based on template type
+        if is_summary:
+             # Map Summary JSON to Template
+            issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
+            blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
+            alert_count = stats.get("total_alerts_period", "N/A")
+            
+            final_html = template.format(
+                hostname=hostname, analysis_result=html_analysis,
+                total_blocked=blocked, top_issue=issue, critical_alerts=alert_count,
+                start_time=st, end_time=et,
+                # Fallbacks for keys that might not exist in template
+                security_trend=stats.get("overall_security_trend", "N/A"),
+                key_recommendation=stats.get("key_strategic_recommendation", "N/A"),
+                total_events=stats.get("total_critical_events_final", "N/A")
+            )
+        else:
+            # Map Periodic JSON to Template
+            final_html = template.format(
+                hostname=hostname, analysis_result=html_analysis,
+                total_blocked=stats.get("total_blocked_events", "0"),
+                top_ip=stats.get("top_blocked_source_ip", "N/A"),
+                critical_alerts=stats.get("alerts_count", "0"),
+                start_time=st, end_time=et
+            )
+            
+        return {"html": final_html}
+    except Exception as e:
+         return {"html": f"<h1>Rendering Error</h1><p>{str(e)}</p>"}
+
+# ... (Settings APIs giu nguyen) ...
 
 @app.get("/api/system-settings", response_model=SystemSettings)
 async def get_settings(test_mode: bool = False):
@@ -343,8 +413,6 @@ async def get_settings(test_mode: bool = False):
 async def save_settings(settings: SystemSettings, test_mode: bool = False):
     path = get_system_settings_path(test_mode)
     conf = get_system_config_parser(test_mode)
-    
-    # clear old emails
     for s in conf.sections(): 
         if s.startswith('Email_'): conf.remove_section(s)
         

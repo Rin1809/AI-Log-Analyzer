@@ -125,17 +125,51 @@ const ReportsPage = () => {
   const totalPages = Math.ceil(filteredReports.length / REPORTS_PER_PAGE);
   const currentReports = filteredReports.slice((currentPage - 1) * REPORTS_PER_PAGE, currentPage * REPORTS_PER_PAGE);
 
-  const handleViewReport = async (reportPath) => {
+  // --- Action Handlers ---
+
+  const handleViewRaw = async (reportPath) => {
     try {
       const res = await axios.get(`/api/report-content?path=${encodeURIComponent(reportPath)}`, { params: { test_mode: isTestMode } });
       setSelectedReport({
         name: reportPath.split(/\/|\\/).pop(),
-        content: JSON.stringify(res.data, null, 2)
+        content: JSON.stringify(res.data, null, 2),
+        format: 'json'
       });
       onReportModalOpen();
     } catch (err) {
-      toast({ title: "Error", description: `Could not load report content. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: "Error", description: `Could not load raw content. ${err.message}`, status: "error", duration: 5000, isClosable: true });
     }
+  };
+
+  const handleViewTemplate = async (reportPath) => {
+    try {
+        const res = await axios.get(`/api/reports/preview?path=${encodeURIComponent(reportPath)}`, { params: { test_mode: isTestMode } });
+        setSelectedReport({
+            name: reportPath.split(/\/|\\/).pop(),
+            content: res.data.html,
+            format: 'html'
+        });
+        onReportModalOpen();
+    } catch (err) {
+        toast({ title: "Preview Error", description: `Could not generate preview. ${err.message}`, status: "error", duration: 5000 });
+    }
+  };
+
+  const handleDownload = async (reportPath) => {
+      // // Use raw browser navigation/link to trigger download via backend
+      const url = `http://127.0.0.1:8000/api/reports/download?path=${encodeURIComponent(reportPath)}`;
+      window.open(url, '_blank');
+  };
+
+  const handleDelete = async (reportPath) => {
+      if (!window.confirm("Are you sure you want to delete this report? This will affect dashboard statistics.")) return;
+      try {
+          await axios.delete(`/api/reports?path=${encodeURIComponent(reportPath)}`);
+          toast({ title: "Deleted", status: "success" });
+          fetchData(isTestMode); // Refresh list
+      } catch (err) {
+          toast({ title: "Delete Failed", description: err.message, status: "error" });
+      }
   };
 
   if (loading) {
@@ -157,7 +191,14 @@ const ReportsPage = () => {
             uniqueTypes={uniqueTypes}
         />
         
-        <ReportsTable reports={currentReports} onViewReport={handleViewReport} />
+        <ReportsTable 
+            reports={currentReports} 
+            onViewRaw={handleViewRaw}
+            onViewTemplate={handleViewTemplate}
+            onDownload={handleDownload}
+            onDelete={handleDelete}
+        />
+        
         <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
       </Box>
 
