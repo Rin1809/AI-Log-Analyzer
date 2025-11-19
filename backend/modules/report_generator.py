@@ -12,7 +12,7 @@ def slugify(text):
     text = re.sub(r'[\s_-]+', '_', text)
     return text
 
-def save_structured_report(firewall_id, report_data, timezone_str, base_report_dir, stage_name):
+def save_structured_report(host_id, report_data, timezone_str, base_report_dir, stage_name):
     """Luu du lieu tho ra file JSON, folder dua theo stage_name."""
     try:
         tz = pytz.timezone(timezone_str)
@@ -21,25 +21,22 @@ def save_structured_report(firewall_id, report_data, timezone_str, base_report_d
         date_folder = now.strftime('%Y-%m-%d')
         time_filename = now.strftime('%H-%M-%S') + '.json'
         
-        # Folder name safe
         safe_stage_name = slugify(stage_name)
         
-        # Path: base_dir/firewall_id/stage_name/date/file.json
-        host_specific_dir = os.path.join(base_report_dir, firewall_id)
+        host_specific_dir = os.path.join(base_report_dir, host_id)
         report_folder_path = os.path.join(host_specific_dir, safe_stage_name, date_folder)
 
         os.makedirs(report_folder_path, exist_ok=True)
         
         report_file_path = os.path.join(report_folder_path, time_filename)
 
-        # Inject type info into report data for easier reading later
         report_data['report_type'] = safe_stage_name
 
         with open(report_file_path, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=4)
             
-        logging.info(f"[{firewall_id}] Da luu bao cao JSON ({stage_name}) vao: '{report_file_path}'")
+        logging.info(f"[{host_id}] Da luu bao cao JSON ({stage_name}) vao: '{report_file_path}'")
         return report_file_path
     except Exception as e:
-        logging.error(f"[{firewall_id}] Loi khi luu file JSON: {e}")
+        logging.error(f"[{host_id}] Loi khi luu file JSON: {e}")
         return None

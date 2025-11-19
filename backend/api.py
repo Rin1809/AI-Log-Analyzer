@@ -27,7 +27,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.1.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.3.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -56,7 +56,7 @@ class PipelineStage(BaseModel):
     recipient_emails: str = ""
     trigger_threshold: int = 1
 
-class FirewallStatus(BaseModel):
+class HostStatus(BaseModel):
     id: str
     hostname: str
     status: str
@@ -101,8 +101,8 @@ class HostConfig(BaseModel):
     pipeline: List[PipelineStage] = []
 
 # --- Helper Functions ---
-def get_firewall_id(hostname: str) -> str:
-    return f"Firewall_{hostname.replace(' ', '_')}"
+def get_host_id(hostname: str) -> str:
+    return f"Host_{hostname.replace(' ', '_')}"
 
 def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     if not config.has_section(section): return {}
@@ -127,21 +127,20 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
 
 # --- API Endpoints ---
 
-# ... (Status/Host APIs giu nguyen - luoc bot cho gon, chi show thay doi) ...
-
-@app.get("/api/status", response_model=List[FirewallStatus])
-async def get_firewall_status(test_mode: bool = False):
+@app.get("/api/status", response_model=List[HostStatus])
+async def get_host_status(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read(get_active_config_file(test_mode))
-        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
+        # // Ho tro ca prefix cu (Firewall_) va moi (Host_)
+        host_sections = [s for s in config.sections() if s.startswith(('Firewall_', 'Host_'))]
         status_list = []
-        for section in firewall_sections:
+        for section in host_sections:
             last_run_ts = state_manager.get_last_cycle_run_timestamp(section, test_mode)
             is_enabled = config.getboolean(section, 'enabled', fallback=True)
             pipeline = json.loads(config.get(section, 'pipeline_config', fallback='[]'))
             
-            status_list.append(FirewallStatus(
+            status_list.append(HostStatus(
                 id=section,
                 hostname=config.get(section, 'SysHostname', fallback='N/A'),
                 status="Online" if is_enabled else "Disabled",
@@ -153,73 +152,73 @@ async def get_firewall_status(test_mode: bool = False):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/status/{firewall_id}/toggle", response_model=Dict)
-async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
+@app.post("/api/status/{host_id}/toggle", response_model=Dict)
+async def toggle_host_status(host_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if firewall_id not in config: raise HTTPException(status_code=404, detail="ID not found")
+    if host_id not in config: raise HTTPException(status_code=404, detail="ID not found")
     
-    curr = config.getboolean(firewall_id, 'enabled', fallback=True)
-    config.set(firewall_id, 'enabled', str(not curr))
+    curr = config.getboolean(host_id, 'enabled', fallback=True)
+    config.set(host_id, 'enabled', str(not curr))
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "toggled"}
 
-@app.get("/api/hosts/{firewall_id}", response_model=Dict)
-async def get_host_details(firewall_id: str, test_mode: bool = False):
+@app.get("/api/hosts/{host_id}", response_model=Dict)
+async def get_host_details(host_id: str, test_mode: bool = False):
     config = configparser.ConfigParser(interpolation=None)
     config.read(get_active_config_file(test_mode))
-    if not config.has_section(firewall_id): raise HTTPException(status_code=404, detail="Host not found")
-    return config_to_dict(config, firewall_id)
+    if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
+    return config_to_dict(config, host_id)
 
 @app.post("/api/hosts", response_model=Dict)
 async def create_host(host_config: HostConfig, test_mode: bool = False):
-    firewall_id = get_firewall_id(host_config.syshostname)
+    host_id = get_host_id(host_config.syshostname)
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if config.has_section(firewall_id): raise HTTPException(status_code=409, detail="Host exists")
+    if config.has_section(host_id): raise HTTPException(status_code=409, detail="Host exists")
     
-    config.add_section(firewall_id)
+    config.add_section(host_id)
     for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
-        config.set(firewall_id, key, str(value))
+        config.set(host_id, key, str(value))
     for i, file_path in enumerate(host_config.context_files, 1):
-        config.set(firewall_id, f'context_file_{i}', file_path)
+        config.set(host_id, f'context_file_{i}', file_path)
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
-    config.set(firewall_id, 'pipeline_config', pipeline_json)
-    config.set(firewall_id, 'enabled', 'True')
+    config.set(host_id, 'pipeline_config', pipeline_json)
+    config.set(host_id, 'enabled', 'True')
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "success"}
 
-@app.put("/api/hosts/{firewall_id}", response_model=Dict)
-async def update_host(firewall_id: str, host_config: HostConfig, test_mode: bool = False):
+@app.put("/api/hosts/{host_id}", response_model=Dict)
+async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if not config.has_section(firewall_id): raise HTTPException(status_code=404, detail="Host not found")
+    if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     
-    old_enabled = config.get(firewall_id, 'enabled', fallback='True')
-    config.remove_section(firewall_id)
-    config.add_section(firewall_id)
-    config.set(firewall_id, 'enabled', old_enabled)
+    old_enabled = config.get(host_id, 'enabled', fallback='True')
+    config.remove_section(host_id)
+    config.add_section(host_id)
+    config.set(host_id, 'enabled', old_enabled)
     
     for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
-        config.set(firewall_id, key, str(value))
+        config.set(host_id, key, str(value))
     for i, file_path in enumerate(host_config.context_files, 1):
-        config.set(firewall_id, f'context_file_{i}', file_path)
+        config.set(host_id, f'context_file_{i}', file_path)
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
-    config.set(firewall_id, 'pipeline_config', pipeline_json)
+    config.set(host_id, 'pipeline_config', pipeline_json)
         
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "success"}
 
-@app.delete("/api/hosts/{firewall_id}", response_model=Dict)
-async def delete_host(firewall_id: str, test_mode: bool = False):
+@app.delete("/api/hosts/{host_id}", response_model=Dict)
+async def delete_host(host_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if not config.has_section(firewall_id): raise HTTPException(status_code=404)
-    config.remove_section(firewall_id)
+    if not config.has_section(host_id): raise HTTPException(status_code=404)
+    config.remove_section(host_id)
     with open(config_path, 'w') as f: config.write(f)
     return {"status": "deleted"}
 
@@ -269,22 +268,28 @@ async def get_all_reports(test_mode: bool = False):
         
         if not os.path.isdir(report_dir): return []
         
-        hostname_map = {s: config.get(s, 'SysHostname', fallback=s) for s in config.sections() if s.startswith('Firewall_')}
+        # Map ID -> Hostname. Ho tro ca prefix cu va moi
+        hostname_map = {s: config.get(s, 'SysHostname', fallback=s) for s in config.sections() if s.startswith(('Firewall_', 'Host_'))}
         reports = []
-        files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
+        # Glob khong ho tro OR pattern trong path de dang, nen phai quet 2 lan hoac quet all roi loc
+        # O day quet tat ca subfolder
+        files = glob.glob(os.path.join(report_dir, '*', '**', '*.json'), recursive=True)
         files.sort(key=os.path.getmtime, reverse=True)
         
         for file_path in files:
             try:
                 parts = os.path.normpath(file_path).split(os.sep)
-                fw_id = next((p for p in parts if p.startswith('Firewall_')), "Unknown")
+                # // Tim folder ID trong path. Chap nhan ca Firewall_ va Host_
+                host_id = next((p for p in parts if p.startswith(('Firewall_', 'Host_'))), None)
                 
+                if not host_id: continue 
+
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = json.load(f)
                 r_type = content.get('report_type', 'unknown')
                 reports.append(ReportInfo(
                     filename=os.path.basename(file_path), path=file_path,
-                    hostname=hostname_map.get(fw_id, fw_id), type=r_type,
+                    hostname=hostname_map.get(host_id, host_id), type=r_type,
                     generated_time=datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
                     summary_stats=content.get('summary_stats', {})
                 ))
@@ -322,11 +327,9 @@ async def preview_report_email(path: str, test_mode: bool = False):
         system_settings = get_system_config_parser(test_mode)
         prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
         
-        # Determine template
         r_type = data.get('report_type', 'unknown')
         is_summary = 'summary' in r_type.lower()
         
-        # Path resolution for templates (assume relative to backend root/prompts)
         if is_summary:
             tpl_path = os.path.join(prompt_dir, '..', 'summary_email_template.html')
             if not os.path.exists(tpl_path): tpl_path = os.path.join('summary_email_template.html')
@@ -353,9 +356,7 @@ async def preview_report_email(path: str, test_mode: bool = False):
         except:
             st, et = "?", "?"
 
-        # Mapping keys based on template type
         if is_summary:
-             # Map Summary JSON to Template
             issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
             blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
             alert_count = stats.get("total_alerts_period", "N/A")
@@ -364,13 +365,11 @@ async def preview_report_email(path: str, test_mode: bool = False):
                 hostname=hostname, analysis_result=html_analysis,
                 total_blocked=blocked, top_issue=issue, critical_alerts=alert_count,
                 start_time=st, end_time=et,
-                # Fallbacks for keys that might not exist in template
                 security_trend=stats.get("overall_security_trend", "N/A"),
                 key_recommendation=stats.get("key_strategic_recommendation", "N/A"),
                 total_events=stats.get("total_critical_events_final", "N/A")
             )
         else:
-            # Map Periodic JSON to Template
             final_html = template.format(
                 hostname=hostname, analysis_result=html_analysis,
                 total_blocked=stats.get("total_blocked_events", "0"),
@@ -383,7 +382,6 @@ async def preview_report_email(path: str, test_mode: bool = False):
     except Exception as e:
          return {"html": f"<h1>Rendering Error</h1><p>{str(e)}</p>"}
 
-# ... (Settings APIs giu nguyen) ...
 
 @app.get("/api/system-settings", response_model=SystemSettings)
 async def get_settings(test_mode: bool = False):

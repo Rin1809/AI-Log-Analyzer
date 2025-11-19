@@ -35,7 +35,6 @@ def run_test(host_section, stage_index, clean=False):
     if stage_index == 0:
         print(f"--- Running Stage 0: {pipeline[0]['name']} ---")
         run_pipeline_stage_0(host_conf, host_section, pipeline[0], api_key, sys_conf, test_mode=True)
-        # Fake increment next buffer so next stage can run
         if len(pipeline) > 1:
             save_stage_buffer_count(host_section, 1, 999, test_mode=True) 
     
@@ -45,7 +44,6 @@ def run_test(host_section, stage_index, clean=False):
         
         run_pipeline_stage_n(host_conf, host_section, stage_index, pipeline[stage_index], pipeline[stage_index-1], api_key, sys_conf, test_mode=True)
         
-        # Fake increment next buffer
         if stage_index + 1 < len(pipeline):
             save_stage_buffer_count(host_section, stage_index+1, 999, test_mode=True)
 
@@ -55,7 +53,7 @@ if __name__ == "__main__":
     parser.add_argument('--clean', action='store_true')
     args = parser.parse_args()
     
-    # Parse input: 'all' -> -1, number -> int
+
     target_idx = -1
     if args.stage_input.lower() == 'all':
         target_idx = -1
@@ -67,7 +65,8 @@ if __name__ == "__main__":
             sys.exit(1)
     
     conf = configparser.ConfigParser(); conf.read(TEST_CONFIG)
-    hosts = [s for s in conf.sections() if s.startswith('Firewall_')]
+
+    hosts = [s for s in conf.sections() if s.startswith(('Firewall_', 'Host_'))]
     
     print(f"Found {len(hosts)} hosts. Target Stage: {'ALL' if target_idx == -1 else target_idx}")
 
@@ -77,15 +76,14 @@ if __name__ == "__main__":
         print(f"\n=== TESTING HOST: {h} ===")
         
         if target_idx == -1:
-            # Run chain: 0 -> 1 -> 2 ...
-            # First run stage 0
+
             run_test(h, 0, args.clean)
             
-            # Load pipeline to know how many stages
+      
             try:
                 pipeline = json.loads(conf.get(h, 'pipeline_config'))
                 for i in range(1, len(pipeline)):
-                    run_test(h, i, False) # Don't clean in middle of chain
+                    run_test(h, i, False) 
             except: pass
         else:
             run_test(h, target_idx, args.clean)

@@ -1,10 +1,9 @@
 import os
 import logging
 
-def read_bonus_context_files(config, firewall_section):
-    """Doc tat ca cac file boi canh duoc dinh nghia trong section cua firewall."""
+def read_bonus_context_files(config, host_section):
+    """Doc tat ca cac file boi canh duoc dinh nghia trong section cua host."""
     context_parts = []
-    
     
     standard_keys = [
         'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 
@@ -19,13 +18,13 @@ def read_bonus_context_files(config, firewall_section):
     ]
     
     # Loc lay cac key khong phai standard -> day chinh la cac file context bo sung
-    context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
+    context_keys = [key for key in config.options(host_section) if key not in standard_keys]
 
     if not context_keys:
         return "Không có thông tin bối cảnh bổ sung nào được cung cấp."
 
     for key in context_keys:
-        file_path = config.get(firewall_section, key).strip()
+        file_path = config.get(host_section, key).strip()
         if not file_path: 
             continue
             
@@ -35,14 +34,14 @@ def read_bonus_context_files(config, firewall_section):
 
         if os.path.exists(file_path):
             try:
-                logging.info(f"[{firewall_section}] Dang doc file boi canh: '{file_path}'")
+                logging.info(f"[{host_section}] Dang doc file boi canh: '{file_path}'")
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                     file_name = os.path.basename(file_path)
                     context_parts.append(f"--- START OF FILE: {file_name} ---\n{content}\n--- END OF FILE: {file_name} ---")
             except Exception as e:
-                logging.error(f"[{firewall_section}] Loi khi doc file boi canh '{file_path}': {e}")
+                logging.error(f"[{host_section}] Loi khi doc file boi canh '{file_path}': {e}")
         else:
-            logging.warning(f"[{firewall_section}] File boi canh '{file_path}' khong ton tai. Bo qua.")
+            logging.warning(f"[{host_section}] File boi canh '{file_path}' khong ton tai. Bo qua.")
 
     return "\n\n".join(context_parts) if context_parts else "Không có thông tin bối cảnh bổ sung nào được cung cấp."
