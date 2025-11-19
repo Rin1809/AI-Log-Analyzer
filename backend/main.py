@@ -10,7 +10,6 @@ import re
 import glob
 from datetime import datetime
 
-# import tu cac module da tach
 from modules import state_manager
 from modules import log_reader
 from modules import gemini_analyzer
@@ -24,6 +23,51 @@ SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
+
+def get_smtp_config(system_settings, host_config, firewall_section):
+
+    host_profile_name = host_config.get(firewall_section, 'smtp_profile', fallback='').strip()
+    
+    system_default_name = system_settings.get('System', 'active_smtp_profile', fallback=None)
+
+    profile_to_use = host_profile_name if host_profile_name else system_default_name
+
+    if not profile_to_use:
+        logging.warning(f"[{firewall_section}] Khong co SMTP Profile nao duoc chon (Host hoac System).")
+        return None
+
+    email_profile_section = f"Email_{profile_to_use}"
+    if not system_settings.has_section(email_profile_section):
+        logging.error(f"[{firewall_section}] Profile email '{profile_to_use}' khong ton tai trong System Settings.")
+        return None
+
+    return dict(system_settings.items(email_profile_section))
+
+def get_attachments(config, firewall_section, system_settings):
+    """Lay danh sach file dinh kem (context), LOAI TRU diagram va smtp_profile."""
+    if not system_settings.getboolean('System', 'attach_context_files', fallback=False):
+        return []
+
+    standard_keys = [
+        'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 
+        'recipientemails', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 
+        'enabled', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
+        'prompt_file', 'summary_prompt_file', 'final_summary_enabled', 
+        'summaries_per_final_report', 'final_summary_recipient_emails',
+        'final_summary_prompt_file', 'gemini_model', 'summary_gemini_model', 'final_summary_model',
+        'smtp_profile'
+    ]
+    
+    context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
+    attachments = []
+    for key in context_keys:
+
+        if key == 'networkdiagram': continue
+        
+        val = config.get(firewall_section, key).strip()
+        if val:
+            attachments.append(val)
+    return attachments
 
 # --- Ham chu ky ---
 
@@ -41,11 +85,10 @@ def run_analysis_cycle(config, firewall_section, api_key, system_settings, test_
     
     recipient_emails = config.get(firewall_section, 'RecipientEmails')
     
-    # // fallback nay chi de phong, duong dan se duoc join ben duoi
     prompt_file_name = config.get(firewall_section, 'prompt_file', fallback='prompt_template.md')
     prompt_file = os.path.join(prompt_dir, prompt_file_name)
 
-    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-1.5-flash') 
+    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-2.5-flash-lite') 
 
     logs_content, start_time, end_time, log_count = log_reader.read_new_log_entries(log_file, hours, timezone, firewall_section, test_mode)
     if logs_content is None:
@@ -76,19 +119,11 @@ def run_analysis_cycle(config, firewall_section, api_key, system_settings, test_
     email_subject = f"Báo cáo Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d %H:%M')}"
     
     try:
-        active_profile_name = system_settings.get('System', 'active_smtp_profile', fallback=None)
-        if not active_profile_name:
-            logging.warning(f"[{firewall_section}] Khong co profile email nao duoc kich hoat. Bo qua gui email.")
-            return
+        smtp_config = get_smtp_config(system_settings, config, firewall_section)
+        if not smtp_config:
+            return # Da log error ben trong ham get_smtp_config
 
-        email_profile_section = f"Email_{active_profile_name}"
-        if not system_settings.has_section(email_profile_section):
-            logging.error(f"[{firewall_section}] Profile email '{active_profile_name}' duoc chon nhung khong ton tai. Bo qua gui email.")
-            return
-
-        smtp_config = dict(system_settings.items(email_profile_section))
-        
-        email_template_path = os.path.join(prompt_dir, '..', 'email_template.html') # // di ra ngoai prompt dir
+        email_template_path = os.path.join(prompt_dir, '..', 'email_template.html')
         with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
         
         analysis_html = markdown.markdown(analysis_markdown)
@@ -101,23 +136,13 @@ def run_analysis_cycle(config, firewall_section, api_key, system_settings, test_
             end_time=end_time.strftime('%H:%M:%S %d-%m-%Y')
         )
 
-        attachments_to_send = []
-        if system_settings.getboolean('System', 'attach_context_files', fallback=False):
-            standard_keys = [
-                'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 
-                'recipientemails', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 
-                'enabled', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
-                'prompt_file', 'summary_prompt_file', 'final_summary_enabled', 
-                'summaries_per_final_report', 'final_summary_recipient_emails',
-                'final_summary_prompt_file', 'gemini_model', 'summary_gemini_model', 'final_summary_model'
-            ]
-            context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
-            attachments_to_send = [config.get(firewall_section, key) for key in context_keys if config.get(firewall_section, key).strip()]
+        attachments_to_send = get_attachments(config, firewall_section, system_settings)
+        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
         
         email_service.send_email(
             firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
             smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=config.get(firewall_section, 'NetworkDiagram', fallback=None),
+            network_diagram_path=network_diagram_path,
             attachment_paths=attachments_to_send
         )
     except Exception as e:
@@ -141,7 +166,7 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, system_setting
     summary_prompt_file_name = config.get(firewall_section, 'summary_prompt_file', fallback='summary_prompt_template.md')
     summary_prompt_file = os.path.join(prompt_dir, summary_prompt_file_name)
     
-    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-1.5-flash') 
+    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-2.5-flash-lite') 
 
     host_report_dir = os.path.join(report_dir, firewall_section)
     report_files_pattern = os.path.join(host_report_dir, "periodic", "*", "*.json")
@@ -202,18 +227,9 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, system_setting
 
     email_subject = f"Báo cáo TỔNG HỢP Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
     try:
-        active_profile_name = system_settings.get('System', 'active_smtp_profile', fallback=None)
-        if not active_profile_name:
-            logging.warning(f"[{firewall_section}] Khong co profile email nao duoc kich hoat. Bo qua gui email.")
-            return True
+        smtp_config = get_smtp_config(system_settings, config, firewall_section)
+        if not smtp_config: return True
 
-        email_profile_section = f"Email_{active_profile_name}"
-        if not system_settings.has_section(email_profile_section):
-            logging.error(f"[{firewall_section}] Profile email '{active_profile_name}' duoc chon nhung khong ton tai. Bo qua gui email.")
-            return True
-
-        smtp_config = dict(system_settings.items(email_profile_section))
-        
         email_template_path = os.path.join(prompt_dir, '..', 'summary_email_template.html')
         with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
 
@@ -226,10 +242,12 @@ def run_summary_analysis_cycle(config, firewall_section, api_key, system_setting
             start_time=start_time.strftime('%H:%M:%S %d-%m-%Y') if start_time else "N/A",
             end_time=end_time.strftime('%H:%M:%S %d-%m-%Y') if end_time else "N/A"
         )
+        
+        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
         email_service.send_email(
             firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
             smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=config.get(firewall_section, 'NetworkDiagram', fallback=None),
+            network_diagram_path=network_diagram_path,
             attachment_paths=reports_to_summarize
         )
     except Exception as e:
@@ -252,7 +270,7 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, system_s
 
     final_prompt_file_name = config.get(firewall_section, 'final_summary_prompt_file', fallback='final_summary_prompt_template.md')
     final_prompt_file = os.path.join(prompt_dir, final_prompt_file_name)
-    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-1.5-pro')
+    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-2.5-flash-lite')
 
     host_report_dir = os.path.join(report_dir, firewall_section)
     summary_files_pattern = os.path.join(host_report_dir, "summary", "*", "*.json")
@@ -313,18 +331,9 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, system_s
 
     email_subject = f"Báo cáo Hệ thống [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
     try:
-        active_profile_name = system_settings.get('System', 'active_smtp_profile', fallback=None)
-        if not active_profile_name:
-            logging.warning(f"[{firewall_section}] Khong co profile email nao duoc kich hoat. Bo qua gui email.")
-            return True
-
-        email_profile_section = f"Email_{active_profile_name}"
-        if not system_settings.has_section(email_profile_section):
-            logging.error(f"[{firewall_section}] Profile email '{active_profile_name}' duoc chon nhung khong ton tai. Bo qua gui email.")
-            return True
+        smtp_config = get_smtp_config(system_settings, config, firewall_section)
+        if not smtp_config: return True
             
-        smtp_config = dict(system_settings.items(email_profile_section))
-        
         email_template_path = os.path.join(prompt_dir, '..', 'final_summary_email_template.html')
         with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
 
@@ -337,10 +346,11 @@ def run_final_summary_analysis_cycle(config, firewall_section, api_key, system_s
             start_time=start_time.strftime('%H:%M:%S %d-%m-%Y') if start_time else "N/A",
             end_time=end_time.strftime('%H:%M:%S %d-%m-%Y') if end_time else "N/A"
         )
+        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
         email_service.send_email(
             firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
             smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=config.get(firewall_section, 'NetworkDiagram', fallback=None),
+            network_diagram_path=network_diagram_path,
             attachment_paths=reports_to_finalize
         )
     except Exception as e:

@@ -33,7 +33,8 @@ const HostFormPage = () => {
     recipientemails: '', geminiapikey: '', gemini_model: '',
     summary_enabled: false, reports_per_summary: 10, summary_recipient_emails: '', summary_gemini_model: '',
     final_summary_enabled: false, summaries_per_final_report: 4, final_summary_recipient_emails: '', final_summary_model: '',
-    networkdiagram: '', context_files: []
+    networkdiagram: '', smtp_profile: '', 
+    context_files: []
   });
 
   const [loading, setLoading] = useState(true);
@@ -41,6 +42,7 @@ const HostFormPage = () => {
   const [error, setError] = useState('');
   const [geminiModels, setGeminiModels] = useState({});
   const [availableContextFiles, setAvailableContextFiles] = useState([]);
+  const [smtpProfiles, setSmtpProfiles] = useState([]);
   
   // States for UI control
   const [runIntervalType, setRunIntervalType] = useState('default');
@@ -52,10 +54,19 @@ const HostFormPage = () => {
   
   const fetchData = useCallback(async () => {
     try {
-      const modelsRes = await axios.get('/api/gemini-models');
+     
+      const [modelsRes, contextFilesRes, settingsRes] = await Promise.all([
+        axios.get('/api/gemini-models'),
+        axios.get('/api/context-files', { params: { test_mode: isTestMode }}),
+        axios.get('/api/system-settings', { params: { test_mode: isTestMode }})
+      ]);
+      
       setGeminiModels(modelsRes.data);
-      const contextFilesRes = await axios.get('/api/context-files', { params: { test_mode: isTestMode }});
       setAvailableContextFiles(contextFilesRes.data.map(f => `Bonus_context/${f}`));
+      
+
+      const profiles = settingsRes.data.smtp_profiles || {};
+      setSmtpProfiles(Object.keys(profiles));
 
       if (isEditing) {
         const hostRes = await axios.get(`/api/hosts/${hostId}`, { params: { test_mode: isTestMode } });
@@ -63,7 +74,6 @@ const HostFormPage = () => {
         if (hostRes.data.run_interval_seconds !== 3600) setRunIntervalType('custom');
         if (hostRes.data.hourstoanalyze !== 24) setHoursType('custom');
       } else {
-         // // set default model if available
          const modelKeys = Object.keys(modelsRes.data);
          if (modelKeys.length > 0) {
             const defaultModel = modelsRes.data[modelKeys[0]];
@@ -122,7 +132,7 @@ const HostFormPage = () => {
   const handleAddEmail = () => {
     if (emailInput && currentEmailField) {
       const currentEmails = formData[currentEmailField] ? formData[currentEmailField].split(',') : [];
-      const newEmails = [...currentEmails, emailInput.trim()].filter(Boolean); // // remove empty
+      const newEmails = [...currentEmails, emailInput.trim()].filter(Boolean); 
       setFormData(prev => ({ ...prev, [currentEmailField]: newEmails.join(',') }));
       setEmailInput('');
     }
@@ -218,8 +228,20 @@ const HostFormPage = () => {
             </FormCard></GridItem>
 
             <GridItem colSpan={{ base: 1, lg: 2 }}><FormCard title="Periodic Report & Email">
-                 <Button size="sm" onClick={() => openEmailModal('recipientemails')}>Manage Recipient Emails</Button>
-                 <Text fontSize="xs" color="gray.500">Recipients: {formData.recipientemails || 'None'}</Text>
+                 <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap={6}>
+                    <FormControl>
+                        <FormLabel fontSize="sm">SMTP Profile (Optional)</FormLabel>
+                        <Select name="smtp_profile" value={formData.smtp_profile} onChange={handleInputChange} placeholder="Use System Default">
+                            {smtpProfiles.map(profile => <option key={profile} value={profile}>{profile}</option>)}
+                        </Select>
+                        <Text fontSize="xs" color="gray.500" mt={1}>Overrides the default system SMTP profile.</Text>
+                    </FormControl>
+                    <FormControl>
+                        <FormLabel fontSize="sm">Recipient Emails</FormLabel>
+                        <Button size="sm" onClick={() => openEmailModal('recipientemails')} width="full">Manage Emails</Button>
+                        <Text fontSize="xs" color="gray.500" mt={1} isTruncated>Current: {formData.recipientemails || 'None'}</Text>
+                    </FormControl>
+                 </Grid>
             </FormCard></GridItem>
             
             <GridItem><FormCard title="Summary Report">
