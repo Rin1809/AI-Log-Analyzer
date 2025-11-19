@@ -52,7 +52,12 @@ const MainDashboard = () => {
     }, []);
 
     useEffect(() => {
+        // FORCE RESET DATA WHEN MODE CHANGES
+        // This fixes the chart glitch where data doesn't update or merge incorrectly
+        setStatusData([]);
+        setReports([]);
         isInitialLoad.current = true;
+        
         fetchData(isTestMode);
         const intervalId = setInterval(() => fetchData(isTestMode), POLLING_INTERVAL);
         return () => clearInterval(intervalId);
@@ -60,6 +65,7 @@ const MainDashboard = () => {
 
     // --- Memoized data for charts ---
     const hostStatusData = useMemo(() => {
+        if (!statusData || statusData.length === 0) return [];
         const active = statusData.filter(s => s.is_enabled).length;
         const inactive = statusData.length - active;
         if (active === 0 && inactive === 0) return [];
@@ -67,16 +73,18 @@ const MainDashboard = () => {
     }, [statusData]);
 
     const reportTypeData = useMemo(() => {
-        if (reports.length === 0) return [];
+        if (!reports || reports.length === 0) return [];
         const types = reports.reduce((acc, report) => {
-            acc[report.type] = (acc[report.type] || 0) + 1;
+            let typeName = report.type.replace(/_/g, ' ');
+            typeName = typeName.charAt(0).toUpperCase() + typeName.slice(1);
+            acc[typeName] = (acc[typeName] || 0) + 1;
             return acc;
         }, {});
-        return Object.entries(types).map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }));
+        return Object.entries(types).map(([name, value]) => ({ name, value }));
     }, [reports]);
 
     const reportsByHostData = useMemo(() => {
-        if (reports.length === 0) return [];
+        if (!reports || reports.length === 0) return [];
         const hosts = reports.reduce((acc, report) => {
             acc[report.hostname] = (acc[report.hostname] || 0) + 1;
             return acc;
@@ -85,12 +93,19 @@ const MainDashboard = () => {
     }, [reports]);
 
     const lineChartData = useMemo(() => {
+        if (!statusData || statusData.length === 0) return { data: [], keys: [] };
+        
         const activeHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
-        const periodicReports = reports.filter(r => r.type === 'periodic');
-        if (activeHostnames.length === 0 || periodicReports.length === 0) return { data: [], keys: [] };
+        
+        const logAnalysisReports = reports.filter(r => 
+            r.summary_stats && 
+            (r.summary_stats.raw_log_count !== undefined || r.summary_stats.total_blocked_events !== undefined)
+        );
+        
+        if (activeHostnames.length === 0 || logAnalysisReports.length === 0) return { data: [], keys: [] };
 
         const reportMap = new Map();
-        periodicReports.forEach(r => {
+        logAnalysisReports.forEach(r => {
             const timestamp = new Date(r.generated_time).getTime();
             if (!reportMap.has(timestamp)) {
                 reportMap.set(timestamp, []);
@@ -98,7 +113,7 @@ const MainDashboard = () => {
             reportMap.get(timestamp).push(r);
         });
 
-        const allTimestamps = [...new Set(periodicReports.map(r => new Date(r.generated_time).getTime()))].sort((a, b) => a - b);
+        const allTimestamps = [...new Set(logAnalysisReports.map(r => new Date(r.generated_time).getTime()))].sort((a, b) => a - b);
         
         const lastValues = activeHostnames.reduce((acc, host) => {
             acc[host] = 0;
@@ -108,11 +123,13 @@ const MainDashboard = () => {
         const finalData = allTimestamps.map(ts => {
             const reportsAtTime = reportMap.get(ts) || [];
             reportsAtTime.forEach(report => {
-                const logCount = parseInt(report.summary_stats?.raw_log_count, 10) || 0;
-                lastValues[report.hostname] = logCount;
+                let val = 0;
+                if (report.summary_stats.raw_log_count !== undefined) val = parseInt(report.summary_stats.raw_log_count, 10);
+                else if (report.summary_stats.total_blocked_events !== "N/A") val = parseInt(report.summary_stats.total_blocked_events, 10);
+                lastValues[report.hostname] = val;
             });
             
-            const formattedTime = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const formattedTime = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
             return { time: formattedTime, ...lastValues };
         });
 
@@ -146,7 +163,7 @@ const MainDashboard = () => {
             </SimpleGrid>
             
             <VStack align="stretch" spacing={3} mt={4}>
-                <Heading size="md" fontWeight="normal" textAlign="left">Log Analysis (by log count)</Heading>
+                <Heading size="md" fontWeight="normal" textAlign="left">Log Volume Analysis</Heading>
                 <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
                     <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
                 </Box>

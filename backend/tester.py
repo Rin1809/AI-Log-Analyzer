@@ -1,132 +1,91 @@
-import os
-import sys
 import argparse
 import configparser
 import logging
-import shutil
-from datetime import datetime
-import pytz
+import sys
+import os
+import json
 
-# a bit of magic to make modules importable
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from main import run_analysis_cycle, run_summary_analysis_cycle, run_final_summary_analysis_cycle
-from modules.state_manager import reset_all_states
+from main import run_pipeline_stage_0, run_pipeline_stage_n
+from modules.state_manager import reset_all_states, save_stage_buffer_count
 
-# --- config ---
-LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
-logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-TEST_CONFIG_FILE = "test_assets/test_config.ini"
-TEST_SYSTEM_SETTINGS_FILE = "system_settings_test.ini" 
+TEST_CONFIG = "test_assets/test_config.ini"
+TEST_SYS = "system_settings_test.ini"
 
-def setup_test_environment(config, clean=False):
-    """
-    Prepares directories and resets states for ALL hosts before a test run.
-    Only cleans if the 'clean' flag is True.
-    """
-    firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-    if not firewall_sections:
-        logging.error(f"Khong tim thay section nao bat dau bang 'Firewall_' trong file '{TEST_CONFIG_FILE}'.")
-        sys.exit(1)
-
-    # // doc report dir tu system settings thay vi host config
-    system_config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-    system_config.read(TEST_SYSTEM_SETTINGS_FILE)
-    report_dir = system_config.get('System', 'report_directory', fallback='test_reports')
+def run_test(host_section, stage_index, clean=False):
+    host_conf = configparser.ConfigParser(interpolation=None); host_conf.read(TEST_CONFIG)
+    sys_conf = configparser.ConfigParser(interpolation=None); sys_conf.read(TEST_SYS)
     
-    if clean:
-        logging.info("Flag --clean duoc kich hoat. Dang don sach moi truong test...")
-        if os.path.exists(report_dir):
-            shutil.rmtree(report_dir)
-            logging.info(f"Da xoa toan bo thu muc test cu: {report_dir}")
-        
-        for section in firewall_sections:
-            reset_all_states(section, test_mode=True)
-        
-        logging.info("Da reset toan bo state cho kịch bản test.")
-
-    os.makedirs(report_dir, exist_ok=True)
-
-
-def run_test_for_host(config, firewall_section, test_type, system_settings): # // fix: Nhan them system_settings
-    """Runs a specific test type for a single configured firewall host."""
-    api_key = config.get(firewall_section, 'GeminiAPIKey')
-
-    if not api_key or "YOUR_API_KEY" in api_key:
-        logging.error(f"Vui long dien Gemini API key vao file '{TEST_CONFIG_FILE}' cho section [{firewall_section}]")
+    if clean and stage_index <= 0: 
+        reset_all_states(host_section, test_mode=True)
+    
+    pipeline_json = host_conf.get(host_section, 'pipeline_config', fallback='[]')
+    try:
+        pipeline = json.loads(pipeline_json)
+    except:
+        print(f"Invalid pipeline config for {host_section}")
         return
+
+    if not pipeline: return print("No pipeline config found.")
     
-    if test_type in ['periodic', 'summary', 'final', 'all']:
-        logging.info(f"--- Bat dau kịch bản test [PERIODIC] cho [{firewall_section}] ---")
-        run_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
-        if test_type == 'periodic':
-            return
-
-    if test_type in ['summary', 'final', 'all']:
-        logging.info(f"--- Tao them bao cao dinh ky de du dieu kien cho [SUMMARY] - Host: [{firewall_section}] ---")
-        run_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
+    api_key = host_conf.get(host_section, 'GeminiAPIKey')
+    
+    if stage_index == 0:
+        print(f"--- Running Stage 0: {pipeline[0]['name']} ---")
+        run_pipeline_stage_0(host_conf, host_section, pipeline[0], api_key, sys_conf, test_mode=True)
+        # Fake increment next buffer so next stage can run
+        if len(pipeline) > 1:
+            save_stage_buffer_count(host_section, 1, 999, test_mode=True) 
+    
+    elif stage_index > 0:
+        if stage_index >= len(pipeline): return print(f"Stage index {stage_index} out of range.")
+        print(f"--- Running Stage {stage_index}: {pipeline[stage_index]['name']} ---")
         
-        logging.info(f"--- Bat dau kịch bản test [SUMMARY] cho [{firewall_section}] ---")
-        summary_success = run_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
-        if test_type == 'summary':
-            return
+        run_pipeline_stage_n(host_conf, host_section, stage_index, pipeline[stage_index], pipeline[stage_index-1], api_key, sys_conf, test_mode=True)
         
-    if test_type in ['final', 'all']:
-        if not summary_success:
-             logging.error(f"Test [SUMMARY] that bai, khong the chay test [FINAL] cho host [{firewall_section}].")
-             return
-
-        logging.info(f"--- Bat dau kịch bản test [FINAL] cho [{firewall_section}] ---")
-        run_final_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=True)
-        if test_type == 'final':
-             return
-
+        # Fake increment next buffer
+        if stage_index + 1 < len(pipeline):
+            save_stage_buffer_count(host_section, stage_index+1, 999, test_mode=True)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Automation test script for AI-log-analyzer.")
-    parser.add_argument(
-        "test_type", 
-        choices=['periodic', 'summary', 'final', 'all'], 
-        help="Loai test can chay: 'periodic', 'summary', 'final', or 'all'."
-    )
-    parser.add_argument(
-        '--clean',
-        action='store_true',
-        help="Xoa sach moi truong test (reports, states) truoc khi chay."
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('stage_input', help="Stage Index (0, 1, 2...) or 'all'")
+    parser.add_argument('--clean', action='store_true')
     args = parser.parse_args()
+    
+    # Parse input: 'all' -> -1, number -> int
+    target_idx = -1
+    if args.stage_input.lower() == 'all':
+        target_idx = -1
+    else:
+        try:
+            target_idx = int(args.stage_input)
+        except ValueError:
+            logging.error("Invalid argument. Use an integer (0, 1...) or 'all'.")
+            sys.exit(1)
+    
+    conf = configparser.ConfigParser(); conf.read(TEST_CONFIG)
+    hosts = [s for s in conf.sections() if s.startswith('Firewall_')]
+    
+    print(f"Found {len(hosts)} hosts. Target Stage: {'ALL' if target_idx == -1 else target_idx}")
 
-    logging.info(f"========== KHOI DONG KIEM THU CHUC NANG: {args.test_type.upper()} ==========")
-
-    if not os.path.exists(TEST_CONFIG_FILE):
-        logging.error(f"File cau hinh test '{TEST_CONFIG_FILE}' khong ton tai.")
-        sys.exit(1)
+    for h in hosts:
+        if not conf.getboolean(h, 'enabled', fallback=True): continue
         
-    if not os.path.exists(TEST_SYSTEM_SETTINGS_FILE):
-        logging.error(f"File cau hinh he thong test '{TEST_SYSTEM_SETTINGS_FILE}' khong ton tai.")
-        sys.exit(1)
-
-    # // doc config host
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(TEST_CONFIG_FILE)
-    
-    # // doc config system
-    system_config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-    system_config.read(TEST_SYSTEM_SETTINGS_FILE)
-    
-    setup_test_environment(config, args.clean)
-    
-    firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-
-    logging.info(f"Tim thay {len(firewall_sections)} host de test: {', '.join(firewall_sections)}")
-
-    for section in firewall_sections:
-        if not config.getboolean(section, 'enabled', fallback=True):
-            logging.warning(f"Bo qua host [{section}] do dang bi tat (enabled=false).")
-            continue
-
-        logging.info(f"========== Bat dau xu ly cho host: [{section}] ==========")
-        run_test_for_host(config, section, args.test_type, system_config)
-        logging.info(f"========== Hoan tat xu ly cho host: [{section}] ==========\n")
-
-    logging.info(f"========== KET THUC KIEM THU: {args.test_type.upper()} ==========")
+        print(f"\n=== TESTING HOST: {h} ===")
+        
+        if target_idx == -1:
+            # Run chain: 0 -> 1 -> 2 ...
+            # First run stage 0
+            run_test(h, 0, args.clean)
+            
+            # Load pipeline to know how many stages
+            try:
+                pipeline = json.loads(conf.get(h, 'pipeline_config'))
+                for i in range(1, len(pipeline)):
+                    run_test(h, i, False) # Don't clean in middle of chain
+            except: pass
+        else:
+            run_test(h, target_idx, args.clean)

@@ -25,11 +25,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(
-    title="AI-log-analyzer API",
-    description="API để quản lý và giám sát tool phân tích log.",
-    version="3.1.0", 
-)
+app = FastAPI(title="AI-log-analyzer API", version="4.0.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -43,27 +39,28 @@ def get_system_settings_path(test_mode: bool = False) -> str:
 def get_system_config_parser(test_mode: bool = False) -> configparser.ConfigParser:
     config_path = get_system_settings_path(test_mode)
     config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-    
     if not os.path.exists(config_path):
-        logging.warning(f"File system settings '{config_path}' khong ton tai. Tao file moi.")
         config.add_section('System')
-        config.set('System', 'report_directory', 'reports' if not test_mode else 'test_reports')
-        config.set('System', 'prompt_directory', 'prompts')
-        config.set('System', 'context_directory', 'Bonus_context')
-        config.set('System', 'scheduler_check_interval_seconds', '60')
-        with open(config_path, 'w') as configfile:
-            config.write(configfile)
-    
+        with open(config_path, 'w') as f: config.write(f)
     config.read(config_path)
     return config
 
 # --- Pydantic Models ---
+class PipelineStage(BaseModel):
+    name: str
+    enabled: bool = True
+    model: str
+    prompt_file: str
+    recipient_emails: str = ""
+    trigger_threshold: int = 1  # For stage > 0. Stage 0 uses time interval.
+
 class FirewallStatus(BaseModel):
     id: str
     hostname: str
     status: str
     is_enabled: bool
     last_run: Optional[str] = None
+    stages_count: int = 0
 
 class ReportInfo(BaseModel):
     filename: str
@@ -74,9 +71,9 @@ class ReportInfo(BaseModel):
     summary_stats: Optional[Dict[str, Any]] = None
 
 class SmtpProfile(BaseModel):
-    profile_name: str = Field(..., min_length=1)
-    server: str = Field(..., min_length=1)
-    port: int = Field(..., gt=0)
+    profile_name: str
+    server: str
+    port: int
     sender_email: EmailStr
     sender_password: str
 
@@ -95,55 +92,38 @@ class HostConfig(BaseModel):
     run_interval_seconds: int
     hourstoanalyze: int
     timezone: str
-    recipientemails: str
     geminiapikey: str
-    gemini_model: str
-    summary_enabled: bool
-    reports_per_summary: int
-    summary_recipient_emails: str
-    summary_gemini_model: str
-    final_summary_enabled: bool
-    summaries_per_final_report: int
-    final_summary_recipient_emails: str
-    final_summary_model: str
     networkdiagram: str
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
+    pipeline: List[PipelineStage] = [] # Dynamic pipeline
 
 # --- Helper Functions ---
 def get_firewall_id(hostname: str) -> str:
     return f"Firewall_{hostname.replace(' ', '_')}"
 
 def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
-    if not config.has_section(section):
-        return {}
-    
+    if not config.has_section(section): return {}
     config_dict = dict(config.items(section))
-
-    standard_keys = [
-        'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory',
-        'recipientemails', 'run_interval_seconds', 'geminiapikey', 'networkdiagram',
-        'enabled', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails',
-        'prompt_file', 'summary_prompt_file', 'final_summary_enabled',
-        'summaries_per_final_report', 'final_summary_recipient_emails',
-        'final_summary_prompt_file', 'gemini_model', 'summary_gemini_model', 'final_summary_model',
-        'smtp_profile'
-    ]
-    context_keys = [key for key in config.options(section) if key not in standard_keys]
+    
+    # Parse Context Files
+    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
+    context_keys = [key for key in config.options(section) if key not in standard_keys and not key.startswith('context_file_')]
     config_dict['context_files'] = [config.get(section, key) for key in context_keys]
 
-    for key, value in config_dict.items():
-        if key in ['run_interval_seconds', 'hourstoanalyze', 'reports_per_summary', 'summaries_per_final_report']:
-          
-            try:
-                clean_val = value.split(';')[0].split('#')[0].strip()
-                config_dict[key] = int(clean_val)
-            except ValueError:
-                logging.warning(f"[{section}] Khong the convert '{key}': '{value}' sang int. Default ve 0.")
-                config_dict[key] = 0
-        elif key in ['summary_enabled', 'final_summary_enabled']:
-            config_dict[key] = config.getboolean(section, key)
-            
+    # Parse Pipeline Config (stored as JSON string)
+    pipeline_json = config.get(section, 'pipeline_config', fallback='[]')
+    try:
+        config_dict['pipeline'] = json.loads(pipeline_json)
+    except json.JSONDecodeError:
+        config_dict['pipeline'] = []
+
+    # Convert ints
+    for key in ['run_interval_seconds', 'hourstoanalyze']:
+        if key in config_dict:
+             try: config_dict[key] = int(config_dict[key])
+             except: config_dict[key] = 0
+             
     return config_dict
 
 # --- API Endpoints ---
@@ -157,40 +137,37 @@ async def get_firewall_status(test_mode: bool = False):
         for section in firewall_sections:
             last_run_ts = state_manager.get_last_cycle_run_timestamp(section, test_mode)
             is_enabled = config.getboolean(section, 'enabled', fallback=True)
+            pipeline = json.loads(config.get(section, 'pipeline_config', fallback='[]'))
+            
             status_list.append(FirewallStatus(
                 id=section,
                 hostname=config.get(section, 'SysHostname', fallback='N/A'),
                 status="Online" if is_enabled else "Disabled",
                 is_enabled=is_enabled,
-                last_run=last_run_ts.isoformat() if last_run_ts else "Never"
+                last_run=last_run_ts.isoformat() if last_run_ts else "Never",
+                stages_count=len(pipeline)
             ))
         return status_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/status/{firewall_id}/toggle", response_model=Dict[str, Any])
+@app.post("/api/status/{firewall_id}/toggle", response_model=Dict)
 async def toggle_firewall_status(firewall_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if firewall_id not in config:
-        raise HTTPException(status_code=404, detail="Firewall ID not found")
-    try:
-        current_state = config.getboolean(firewall_id, 'enabled', fallback=True)
-        config.set(firewall_id, 'enabled', str(not current_state))
-        with open(config_path, 'w') as configfile:
-            config.write(configfile)
-        return {"id": firewall_id, "new_status": "enabled" if not current_state else "disabled"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update config file: {e}")
+    if firewall_id not in config: raise HTTPException(status_code=404, detail="ID not found")
+    
+    curr = config.getboolean(firewall_id, 'enabled', fallback=True)
+    config.set(firewall_id, 'enabled', str(not curr))
+    with open(config_path, 'w') as f: config.write(f)
+    return {"status": "toggled"}
 
-# --- HOST CRUD ENDPOINTS ---
 @app.get("/api/hosts/{firewall_id}", response_model=Dict)
 async def get_host_details(firewall_id: str, test_mode: bool = False):
     config = configparser.ConfigParser(interpolation=None)
     config.read(get_active_config_file(test_mode))
-    if not config.has_section(firewall_id):
-        raise HTTPException(status_code=404, detail="Host not found")
+    if not config.has_section(firewall_id): raise HTTPException(status_code=404, detail="Host not found")
     return config_to_dict(config, firewall_id)
 
 @app.post("/api/hosts", response_model=Dict)
@@ -199,65 +176,66 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if config.has_section(firewall_id):
-        raise HTTPException(status_code=409, detail=f"Host with name '{host_config.syshostname}' already exists.")
+    if config.has_section(firewall_id): raise HTTPException(status_code=409, detail="Host exists")
+    
     config.add_section(firewall_id)
-    for key, value in host_config.model_dump(exclude={'context_files'}).items():
+    
+    # Basic fields
+    for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
         config.set(firewall_id, key, str(value))
+        
+    # Context files
     for i, file_path in enumerate(host_config.context_files, 1):
         config.set(firewall_id, f'context_file_{i}', file_path)
+        
+    # Pipeline JSON
+    pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
+    config.set(firewall_id, 'pipeline_config', pipeline_json)
+    
     config.set(firewall_id, 'enabled', 'True')
-    with open(config_path, 'w') as configfile:
-        config.write(configfile)
-    return {"status": "success", "message": f"Host {host_config.syshostname} created."}
+    
+    with open(config_path, 'w') as f: config.write(f)
+    return {"status": "success"}
 
 @app.put("/api/hosts/{firewall_id}", response_model=Dict)
 async def update_host(firewall_id: str, host_config: HostConfig, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if not config.has_section(firewall_id):
-        raise HTTPException(status_code=404, detail="Host not found")
+    if not config.has_section(firewall_id): raise HTTPException(status_code=404, detail="Host not found")
     
-    standard_keys = [
-        'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory',
-        'recipientemails', 'run_interval_seconds', 'geminiapikey', 'networkdiagram',
-        'enabled', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails',
-        'prompt_file', 'summary_prompt_file', 'final_summary_enabled',
-        'summaries_per_final_report', 'final_summary_recipient_emails',
-        'final_summary_prompt_file', 'gemini_model', 'summary_gemini_model', 'final_summary_model',
-        'smtp_profile'
-    ]
-    for option in config.options(firewall_id):
-        if option not in standard_keys:
-            config.remove_option(firewall_id, option)
-            
-    for key, value in host_config.model_dump(exclude={'context_files'}).items():
+    # Clear old keys to be safe (except enabled)
+    old_enabled = config.get(firewall_id, 'enabled', fallback='True')
+    config.remove_section(firewall_id)
+    config.add_section(firewall_id)
+    config.set(firewall_id, 'enabled', old_enabled)
+    
+    for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
         config.set(firewall_id, key, str(value))
+        
     for i, file_path in enumerate(host_config.context_files, 1):
         config.set(firewall_id, f'context_file_{i}', file_path)
+
+    pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
+    config.set(firewall_id, 'pipeline_config', pipeline_json)
         
-    with open(config_path, 'w') as configfile:
-        config.write(configfile)
-    return {"status": "success", "message": f"Host {firewall_id} updated."}
+    with open(config_path, 'w') as f: config.write(f)
+    return {"status": "success"}
 
 @app.delete("/api/hosts/{firewall_id}", response_model=Dict)
 async def delete_host(firewall_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path)
-    if not config.has_section(firewall_id):
-        raise HTTPException(status_code=404, detail="Host not found")
+    if not config.has_section(firewall_id): raise HTTPException(status_code=404)
     config.remove_section(firewall_id)
-    with open(config_path, 'w') as configfile:
-        config.write(configfile)
-    return {"status": "success", "message": f"Host {firewall_id} deleted."}
+    with open(config_path, 'w') as f: config.write(f)
+    return {"status": "deleted"}
 
-# --- UTILITY ENDPOINTS ---
+# --- Utils / Models / Files ---
 @app.get("/api/gemini-models", response_model=Dict[str, str])
 async def get_gemini_models():
-    if not os.path.exists(MODEL_LIST_FILE):
-        return {}
+    if not os.path.exists(MODEL_LIST_FILE): return {}
     config = configparser.ConfigParser()
     config.read(MODEL_LIST_FILE)
     if 'GeminiModels' not in config: return {}
@@ -265,192 +243,130 @@ async def get_gemini_models():
 
 @app.get("/api/context-files", response_model=List[str])
 async def get_context_files(test_mode: bool = False):
-    try:
-        sys_config = get_system_config_parser(test_mode)
-        context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
-        if not context_dir or not os.path.isdir(context_dir):
-            return []
-        files = [f for f in os.listdir(context_dir) if os.path.isfile(os.path.join(context_dir, f))]
-        return files
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    sys_config = get_system_config_parser(test_mode)
+    context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
+    if not context_dir or not os.path.isdir(context_dir): return []
+    return [f for f in os.listdir(context_dir) if os.path.isfile(os.path.join(context_dir, f))]
 
-@app.post("/api/upload/context", response_model=Dict[str, str])
+@app.post("/api/upload/context", response_model=Dict)
 async def upload_context_file(test_mode: bool = False, file: UploadFile = File(...)):
     sys_config = get_system_config_parser(test_mode)
     context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
-    
-    if not context_dir:
-        raise HTTPException(status_code=400, detail="Context directory is not configured.")
-        
+    if not context_dir: raise HTTPException(400, "Context dir not configured")
     os.makedirs(context_dir, exist_ok=True)
-    
-    safe_filename = os.path.basename(file.filename)
-    file_path = os.path.join(context_dir, safe_filename)
-    
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
-    finally:
-        file.file.close()
+    path = os.path.join(context_dir, os.path.basename(file.filename))
+    with open(path, "wb") as b: shutil.copyfileobj(file.file, b)
+    return {"filename": file.filename, "path": path}
 
-    return {"status": "success", "filename": safe_filename, "path": file_path}
-
-@app.delete("/api/context-files/{filename}", response_model=Dict[str, str])
+@app.delete("/api/context-files/{filename}", response_model=Dict)
 async def delete_context_file(filename: str, test_mode: bool = False):
     sys_config = get_system_config_parser(test_mode)
     context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
-    
-    if not context_dir:
-        raise HTTPException(status_code=400, detail="Context directory is not configured.")
-        
-    file_path = os.path.join(context_dir, filename)
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found.")
-    
-    # Security check to prevent path traversal deletion
-    if os.path.dirname(os.path.abspath(file_path)) != os.path.abspath(context_dir):
-         raise HTTPException(status_code=403, detail="Access denied.")
+    path = os.path.join(context_dir, filename)
+    if os.path.exists(path): os.remove(path)
+    return {"status": "deleted"}
 
-    try:
-        os.remove(file_path)
-        logging.info(f"Da xoa file context: {file_path}")
-        return {"status": "success", "message": f"File {filename} deleted."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not delete file: {e}")
-
-# --- REPORT ENDPOINTS ---
 @app.get("/api/reports", response_model=List[ReportInfo])
 async def get_all_reports(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read(get_active_config_file(test_mode))
         system_settings = get_system_config_parser(test_mode)
-        report_dir = system_settings.get('System', 'report_directory', fallback='test_reports')
+        
+        # FIX: Logic fallback an toan hon. 
+        # Neu test_mode=False ma ko co setting, mac dinh la 'reports', ko phai 'test_reports'
+        default_report_dir = 'test_reports' if test_mode else 'reports'
+        report_dir = system_settings.get('System', 'report_directory', fallback=default_report_dir)
         
         if not os.path.isdir(report_dir): return []
         
-        firewall_sections = [s for s in config.sections() if s.startswith('Firewall_')]
-        hostname_map = {fw_id: config.get(fw_id, 'SysHostname', fallback=fw_id) for fw_id in firewall_sections}
+        hostname_map = {s: config.get(s, 'SysHostname', fallback=s) for s in config.sections() if s.startswith('Firewall_')}
         
         reports = []
-        report_files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
-        report_files.sort(key=os.path.getmtime, reverse=True)
+        files = glob.glob(os.path.join(report_dir, 'Firewall_*', '**', '*.json'), recursive=True)
+        files.sort(key=os.path.getmtime, reverse=True)
         
-        for file_path in report_files:
+        for file_path in files:
             try:
-                path_parts = os.path.normpath(file_path).split(os.sep)
-                report_dir_base = os.path.basename(report_dir)
-                try:
-                    firewall_id_from_path = path_parts[path_parts.index(report_dir_base) + 1]
-                except ValueError:
-                    firewall_id_from_path = "Unknown_Host"
-
-                report_type = 'periodic'
-                if 'summary' in file_path: report_type = 'summary'
-                if 'final' in file_path: report_type = 'final'
-                
-                gen_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                report_summary_stats = None
+                parts = os.path.normpath(file_path).split(os.sep)
+                fw_id = next((p for p in parts if p.startswith('Firewall_')), "Unknown")
                 
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    report_content = json.load(f)
-                    report_summary_stats = report_content.get('summary_stats', {})
-                    report_summary_stats['raw_log_count'] = report_content.get('raw_log_count', 0)
-                
+                    content = json.load(f)
+                    
+                r_type = content.get('report_type', 'unknown')
+                if r_type == 'unknown':
+                    if 'summary' in file_path.lower(): r_type = 'summary'
+                    elif 'final' in file_path.lower(): r_type = 'final'
+                    else: r_type = 'periodic'
+
                 reports.append(ReportInfo(
                     filename=os.path.basename(file_path), path=file_path,
-                    hostname=hostname_map.get(firewall_id_from_path, 'Unknown'), type=report_type,
-                    generated_time=gen_time.strftime('%Y-%m-%d %H:%M:%S'), summary_stats=report_summary_stats
+                    hostname=hostname_map.get(fw_id, fw_id), type=r_type,
+                    generated_time=datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    summary_stats=content.get('summary_stats', {})
                 ))
-            except Exception as e:
-                logging.warning(f"Skip report {file_path}: {e}")
+            except: pass
         return reports
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(500, str(e))
 
-@app.get("/api/report-content", response_model=Dict[str, Any])
-async def get_report_content(path: str, test_mode: bool = False):
-    system_settings = get_system_config_parser(test_mode)
-    report_dir = system_settings.get('System', 'report_directory', fallback='test_reports')
-    
-    safe_base_dir = os.path.abspath(report_dir)
-    requested_path = os.path.abspath(path)
-    if not requested_path.startswith(safe_base_dir):
-        raise HTTPException(status_code=403, detail="Access denied.")
-    if not os.path.exists(requested_path):
-        raise HTTPException(status_code=404, detail="Report file not found.")
-        
-    try:
-        with open(requested_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
+@app.get("/api/report-content", response_model=Dict)
+async def get_report_content(path: str):
+    if not os.path.exists(path): raise HTTPException(404)
+    with open(path, 'r', encoding='utf-8') as f: return json.load(f)
 
 @app.get("/api/system-settings", response_model=SystemSettings)
-async def get_system_settings(test_mode: bool = False):
-    try:
-        config = get_system_config_parser(test_mode)
-        settings = SystemSettings()
-        
-        if 'System' in config:
-            system_sec = config['System']
-            settings.report_directory = system_sec.get('report_directory', '')
-            settings.prompt_directory = system_sec.get('prompt_directory', '')
-            settings.context_directory = system_sec.get('context_directory', '')
-            settings.active_smtp_profile = system_sec.get('active_smtp_profile')
-            settings.attach_context_files = system_sec.getboolean('attach_context_files', False)
-            settings.scheduler_check_interval_seconds = system_sec.getint('scheduler_check_interval_seconds', 60)
-            
-        profiles = {}
-        for section_name in config.sections():
-            if section_name.startswith('Email_'):
-                profile_name = section_name[6:]
-                profile_sec = config[section_name]
-                profiles[profile_name] = SmtpProfile(
-                    profile_name=profile_name, server=profile_sec.get('server'), port=profile_sec.getint('port'),
-                    sender_email=profile_sec.get('sender_email'), sender_password=profile_sec.get('sender_password', '')
-                )
-        settings.smtp_profiles = profiles
-        return settings
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_settings(test_mode: bool = False):
+    conf = get_system_config_parser(test_mode)
+    settings = SystemSettings()
+    if 'System' in conf:
+        s = conf['System']
+        settings.report_directory = s.get('report_directory', '')
+        settings.prompt_directory = s.get('prompt_directory', '')
+        settings.context_directory = s.get('context_directory', '')
+        settings.active_smtp_profile = s.get('active_smtp_profile')
+        settings.attach_context_files = s.getboolean('attach_context_files', False)
+        settings.scheduler_check_interval_seconds = s.getint('scheduler_check_interval_seconds', 60)
+    
+    profiles = {}
+    for sec in conf.sections():
+        if sec.startswith('Email_'):
+            p = conf[sec]
+            profiles[sec[6:]] = SmtpProfile(
+                profile_name=sec[6:], server=p.get('server'), port=p.getint('port'),
+                sender_email=p.get('sender_email'), sender_password=p.get('sender_password', '')
+            )
+    settings.smtp_profiles = profiles
+    return settings
 
-@app.post("/api/system-settings", response_model=Dict[str, str])
-async def update_system_settings(settings: SystemSettings, test_mode: bool = False):
-    try:
-        config_path = get_system_settings_path(test_mode)
-        config = get_system_config_parser(test_mode)
+@app.post("/api/system-settings", response_model=Dict)
+async def save_settings(settings: SystemSettings, test_mode: bool = False):
+    path = get_system_settings_path(test_mode)
+    conf = get_system_config_parser(test_mode)
+    
+    # clear old emails
+    for s in conf.sections(): 
+        if s.startswith('Email_'): conf.remove_section(s)
         
-        for section in config.sections():
-            if section.startswith('Email_'):
-                config.remove_section(section)
-                
-        if 'System' not in config: config.add_section('System')
+    if 'System' not in conf: conf.add_section('System')
+    sys = conf['System']
+    sys['report_directory'] = settings.report_directory
+    sys['prompt_directory'] = settings.prompt_directory
+    sys['context_directory'] = settings.context_directory
+    sys['active_smtp_profile'] = settings.active_smtp_profile or ''
+    sys['attach_context_files'] = str(settings.attach_context_files)
+    sys['scheduler_check_interval_seconds'] = str(settings.scheduler_check_interval_seconds)
+    
+    for name, prof in settings.smtp_profiles.items():
+        sec = f'Email_{name}'
+        conf.add_section(sec)
+        conf[sec]['server'] = prof.server
+        conf[sec]['port'] = str(prof.port)
+        conf[sec]['sender_email'] = prof.sender_email
+        conf[sec]['sender_password'] = prof.sender_password
         
-        config.set('System', 'report_directory', settings.report_directory or '')
-        config.set('System', 'prompt_directory', settings.prompt_directory or '')
-        config.set('System', 'context_directory', settings.context_directory or '')
-        config.set('System', 'active_smtp_profile', settings.active_smtp_profile or '')
-        config.set('System', 'attach_context_files', str(settings.attach_context_files))
-        config.set('System', 'scheduler_check_interval_seconds', str(settings.scheduler_check_interval_seconds))
-        
-        for name, profile in settings.smtp_profiles.items():
-            section_name = f'Email_{name}'
-            config.add_section(section_name)
-            config.set(section_name, 'server', profile.server)
-            config.set(section_name, 'port', str(profile.port))
-            config.set(section_name, 'sender_email', profile.sender_email)
-            config.set(section_name, 'sender_password', profile.sender_password)
-            
-        with open(config_path, 'w') as configfile:
-            config.write(configfile)
-        return {"status": "success", "message": "System settings updated."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save settings: {e}")
+    with open(path, 'w') as f: conf.write(f)
+    return {"status": "saved"}
 
 if __name__ == "__main__":
     import uvicorn

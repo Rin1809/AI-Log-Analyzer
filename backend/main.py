@@ -17,448 +17,306 @@ from modules import email_service
 from modules import report_generator
 from modules import context_loader
 
-# --- gia tri mac dinh/fallback ---
 CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-def get_smtp_config(system_settings, host_config, firewall_section):
+def get_smtp_config_for_stage(system_settings, host_config, firewall_section, stage_config=None):
+    # Prefer stage specific email? No, user just wants recipient. SMTP profile is host/system level.
+    host_profile = host_config.get(firewall_section, 'smtp_profile', fallback='').strip()
+    system_default = system_settings.get('System', 'active_smtp_profile', fallback=None)
+    profile_to_use = host_profile if host_profile else system_default
 
-    host_profile_name = host_config.get(firewall_section, 'smtp_profile', fallback='').strip()
-    
-    system_default_name = system_settings.get('System', 'active_smtp_profile', fallback=None)
-
-    profile_to_use = host_profile_name if host_profile_name else system_default_name
-
-    if not profile_to_use:
-        logging.warning(f"[{firewall_section}] Khong co SMTP Profile nao duoc chon (Host hoac System).")
-        return None
-
-    email_profile_section = f"Email_{profile_to_use}"
-    if not system_settings.has_section(email_profile_section):
-        logging.error(f"[{firewall_section}] Profile email '{profile_to_use}' khong ton tai trong System Settings.")
-        return None
-
-    return dict(system_settings.items(email_profile_section))
+    if not profile_to_use: return None
+    email_sec = f"Email_{profile_to_use}"
+    if not system_settings.has_section(email_sec): return None
+    return dict(system_settings.items(email_sec))
 
 def get_attachments(config, firewall_section, system_settings):
-    """Lay danh sach file dinh kem (context), LOAI TRU diagram va smtp_profile."""
     if not system_settings.getboolean('System', 'attach_context_files', fallback=False):
         return []
-
-    standard_keys = [
-        'syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'reportdirectory', 
-        'recipientemails', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 
-        'enabled', 'summary_enabled', 'reports_per_summary', 'summary_recipient_emails', 
-        'prompt_file', 'summary_prompt_file', 'final_summary_enabled', 
-        'summaries_per_final_report', 'final_summary_recipient_emails',
-        'final_summary_prompt_file', 'gemini_model', 'summary_gemini_model', 'final_summary_model',
-        'smtp_profile'
-    ]
     
-    context_keys = [key for key in config.options(firewall_section) if key not in standard_keys]
+    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
     attachments = []
-    for key in context_keys:
-
-        if key == 'networkdiagram': continue
-        
-        val = config.get(firewall_section, key).strip()
-        if val:
-            attachments.append(val)
+    for key in config.options(firewall_section):
+        if key not in standard_keys and not key.startswith('context_file_'):
+             val = config.get(firewall_section, key).strip()
+             if val and os.path.isfile(val): attachments.append(val)
+        if key.startswith('context_file_'):
+             val = config.get(firewall_section, key).strip()
+             if val and os.path.isfile(val): attachments.append(val)
+             
     return attachments
 
-# --- Ham chu ky ---
+# --- PIPELINE EXECUTION ---
 
-def run_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=False):
-    """Chay mot chu ky phan tich dinh ky cho mot firewall cu the."""
-    logging.info(f"[{firewall_section}] Bat dau chu ky phan tich log.")
+def run_pipeline_stage_0(host_config, firewall_section, stage_config, api_key, system_settings, test_mode=False):
+    """
+    Stage 0: RAW LOG ANALYSIS (Periodic)
+    """
+    stage_name = stage_config.get('name', 'Periodic')
+    logging.info(f"[{firewall_section}] >>> Running Stage 0: {stage_name}")
 
-    log_file = config.get(firewall_section, 'LogFile')
-    hours = config.getint(firewall_section, 'HoursToAnalyze')
-    hostname = config.get(firewall_section, 'SysHostname')
-    timezone = config.get(firewall_section, 'TimeZone')
+    log_file = host_config.get(firewall_section, 'LogFile')
+    hours = host_config.getint(firewall_section, 'HoursToAnalyze', fallback=24)
+    hostname = host_config.get(firewall_section, 'SysHostname')
+    timezone = host_config.get(firewall_section, 'TimeZone', fallback='UTC')
     
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
     
-    recipient_emails = config.get(firewall_section, 'RecipientEmails')
-    
-    prompt_file_name = config.get(firewall_section, 'prompt_file', fallback='prompt_template.md')
+    prompt_file_name = stage_config.get('prompt_file', 'prompt_template.md')
     prompt_file = os.path.join(prompt_dir, prompt_file_name)
-
-    model_name = config.get(firewall_section, 'gemini_model', fallback='gemini-2.5-flash-lite') 
+    model_name = stage_config.get('model', 'gemini-2.5-flash-lite')
+    recipient_emails = stage_config.get('recipient_emails', '')
 
     logs_content, start_time, end_time, log_count = log_reader.read_new_log_entries(log_file, hours, timezone, firewall_section, test_mode)
     if logs_content is None:
-        logging.error(f"[{firewall_section}] Khong the tiep tuc do loi doc file log.")
-        return
+        logging.error(f"[{firewall_section}] Log read failed.")
+        return False
 
-    bonus_context = context_loader.read_bonus_context_files(config, firewall_section)
+    bonus_context = context_loader.read_bonus_context_files(host_config, firewall_section)
     analysis_raw = gemini_analyzer.analyze_with_gemini(firewall_section, logs_content, bonus_context, api_key, prompt_file, model_name)
 
-    summary_data = {"total_blocked_events": "N/A", "top_blocked_source_ip": "N/A", "alerts_count": "N/A"}
+    # Parse JSON
+    summary_data = {"total_blocked_events": "N/A"}
     analysis_markdown = analysis_raw
     try:
         json_match = re.search(r'```json\n(.*?)\n```', analysis_raw, re.DOTALL)
         if json_match:
             summary_data = json.loads(json_match.group(1))
             analysis_markdown = analysis_raw.replace(json_match.group(0), "").strip()
-    except Exception as e:
-        logging.warning(f"[{firewall_section}] Khong the trich xuat JSON: {e}")
+    except: pass
 
     report_data = {
         "hostname": hostname, "analysis_start_time": start_time.isoformat(), "analysis_end_time": end_time.isoformat(),
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "raw_log_count": log_count,
-        "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown
+        "raw_log_count": log_count, "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown
     }
-    report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='periodic')
-
-    email_subject = f"Báo cáo Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d %H:%M')}"
     
-    try:
-        smtp_config = get_smtp_config(system_settings, config, firewall_section)
-        if not smtp_config:
-            return # Da log error ben trong ham get_smtp_config
+    # Save using stage name
+    report_file = report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, stage_name)
+    if not report_file: return False
 
-        email_template_path = os.path.join(prompt_dir, '..', 'email_template.html')
-        with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
-        
-        analysis_html = markdown.markdown(analysis_markdown)
-        email_body = email_template.format(
-            hostname=hostname, analysis_result=analysis_html,
-            total_blocked=summary_data.get("total_blocked_events", "N/A"),
-            top_ip=summary_data.get("top_blocked_source_ip", "N/A"),
-            critical_alerts=summary_data.get("alerts_count", "N/A"),
-            start_time=start_time.strftime('%H:%M:%S %d-%m-%Y'),
-            end_time=end_time.strftime('%H:%M:%S %d-%m-%Y')
-        )
+    # Send Email
+    if recipient_emails:
+        email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        smtp = get_smtp_config_for_stage(system_settings, host_config, firewall_section)
+        if smtp:
+            try:
+                # Use generic template
+                tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
+                with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
+                body = tpl.format(
+                    hostname=hostname, analysis_result=markdown.markdown(analysis_markdown),
+                    total_blocked=summary_data.get("total_blocked_events", "0"),
+                    top_ip=summary_data.get("top_blocked_source_ip", "N/A"),
+                    critical_alerts=summary_data.get("alerts_count", "0"),
+                    start_time=start_time.strftime('%H:%M %d-%m'), end_time=end_time.strftime('%H:%M %d-%m')
+                )
+                atts = get_attachments(host_config, firewall_section, system_settings)
+                diag = host_config.get(firewall_section, 'NetworkDiagram', fallback=None)
+                email_service.send_email(firewall_section, email_subject, body, smtp, recipient_emails, diag, atts)
+            except Exception as e: logging.error(f"Email failed: {e}")
 
-        attachments_to_send = get_attachments(config, firewall_section, system_settings)
-        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
-        
-        email_service.send_email(
-            firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
-            smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=network_diagram_path,
-            attachment_paths=attachments_to_send
-        )
-    except Exception as e:
-        logging.error(f"[{firewall_section}] Loi khi tao/gui email: {e}", exc_info=True)
-
-    logging.info(f"[{firewall_section}] Hoan tat chu ky phan tich.")
-
-
-def run_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=False):
-    """Chay mot chu ky phan tich TONG HOP cho mot firewall."""
-    logging.info(f"[{firewall_section}] Bat dau chu ky phan tich TONG HOP.")
-    
-    report_dir = system_settings.get('System', 'report_directory', fallback='reports')
-    prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
-    
-    reports_per_summary = config.getint(firewall_section, 'reports_per_summary')
-    timezone = config.get(firewall_section, 'TimeZone')
-    hostname = config.get(firewall_section, 'SysHostname')
-    recipient_emails = config.get(firewall_section, 'summary_recipient_emails')
-    
-    summary_prompt_file_name = config.get(firewall_section, 'summary_prompt_file', fallback='summary_prompt_template.md')
-    summary_prompt_file = os.path.join(prompt_dir, summary_prompt_file_name)
-    
-    model_name = config.get(firewall_section, 'summary_gemini_model', fallback='gemini-2.5-flash-lite') 
-
-    host_report_dir = os.path.join(report_dir, firewall_section)
-    report_files_pattern = os.path.join(host_report_dir, "periodic", "*", "*.json")
-    all_reports = sorted(glob.glob(report_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
-    
-    reports_to_summarize = all_reports[:reports_per_summary]
-
-    if len(reports_to_summarize) < reports_per_summary and not test_mode:
-        logging.warning(f"[{firewall_section}] Khong du bao cao ({len(reports_to_summarize)}/{reports_per_summary}) de tong hop. Cho chu ky sau.")
-        return False
-
-    if not reports_to_summarize:
-         logging.warning(f"[{firewall_section}] Khong tim thay file bao cao dinh ky nao de tong hop.")
-         return False
-
-    logging.info(f"[{firewall_section}] Se tong hop tu {len(reports_to_summarize)} bao cao: {reports_to_summarize}")
-
-    combined_analysis, start_time, end_time = [], None, None
-    for report_path in reversed(reports_to_summarize):
-        try:
-            with open(report_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                combined_analysis.append(f"--- BAO CAO TU {data['analysis_start_time']} DEN {data['analysis_end_time']} ---\n\n{data['analysis_details_markdown']}")
-
-                s_time = datetime.fromisoformat(data['analysis_start_time'])
-                e_time = datetime.fromisoformat(data['analysis_end_time'])
-                if start_time is None or s_time < start_time: start_time = s_time
-                if end_time is None or e_time > end_time: end_time = e_time
-        except Exception as e:
-            logging.error(f"[{firewall_section}] Loi khi doc file '{report_path}': {e}")
-
-    if not combined_analysis:
-        logging.error(f"[{firewall_section}] Khong the doc noi dung tu bat ky file nao.")
-        return False
-
-    reports_content = "\n\n".join(combined_analysis)
-    bonus_context = context_loader.read_bonus_context_files(config, firewall_section)
-    summary_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, summary_prompt_file, model_name)
-
-    summary_data = {"total_blocked_events_period": "N/A", "most_frequent_issue": "N/A", "total_alerts_period": "N/A"}
-    analysis_markdown = summary_raw
-    try:
-        json_match = re.search(r'```json\n(.*?)\n```', summary_raw, re.DOTALL)
-        if json_match:
-            summary_data = json.loads(json_match.group(1))
-            analysis_markdown = summary_raw.replace(json_match.group(0), "").strip()
-    except Exception as e:
-        logging.warning(f"[{firewall_section}] Khong the trich xuat JSON tong hop: {e}")
-
-    report_data = {
-        "hostname": hostname, "analysis_start_time": start_time.isoformat() if start_time else "N/A",
-        "analysis_end_time": end_time.isoformat() if end_time else "N/A",
-        "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown,
-        "summarized_files": reports_to_summarize
-    }
-    report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='summary')
-
-    email_subject = f"Báo cáo TỔNG HỢP Log [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
-    try:
-        smtp_config = get_smtp_config(system_settings, config, firewall_section)
-        if not smtp_config: return True
-
-        email_template_path = os.path.join(prompt_dir, '..', 'summary_email_template.html')
-        with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
-
-        analysis_html = markdown.markdown(analysis_markdown)
-        email_body = email_template.format(
-            hostname=hostname, analysis_result=analysis_html,
-            total_blocked=summary_data.get("total_blocked_events_period", "N/A"),
-            top_issue=summary_data.get("most_frequent_issue", "N/A"),
-            critical_alerts=summary_data.get("total_alerts_period", "N/A"),
-            start_time=start_time.strftime('%H:%M:%S %d-%m-%Y') if start_time else "N/A",
-            end_time=end_time.strftime('%H:%M:%S %d-%m-%Y') if end_time else "N/A"
-        )
-        
-        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
-        email_service.send_email(
-            firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
-            smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=network_diagram_path,
-            attachment_paths=reports_to_summarize
-        )
-    except Exception as e:
-        logging.error(f"[{firewall_section}] Loi khi tao/gui email tong hop: {e}", exc_info=True)
-
-    logging.info(f"[{firewall_section}] Hoan tat chu ky TONG HOP.")
     return True
 
-def run_final_summary_analysis_cycle(config, firewall_section, api_key, system_settings, test_mode=False):
-    """Chay mot chu ky phan tich FINAL cho mot firewall."""
-    logging.info(f"[{firewall_section}] Bat dau chu ky phan tich FINAL.")
+def run_pipeline_stage_n(host_config, firewall_section, current_stage_idx, stage_config, prev_stage_config, api_key, system_settings, test_mode=False):
+    """
+    Stage N > 0: AGGREGATION (Summary, Final, etc.)
+    Consumes reports from Stage N-1.
+    """
+    stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
+    prev_stage_name = prev_stage_config.get('name', f'Stage_{current_stage_idx-1}')
+    threshold = int(stage_config.get('trigger_threshold', 10))
     
+    logging.info(f"[{firewall_section}] >>> Checking trigger for Stage {current_stage_idx} ({stage_name}). Need {threshold} reports from {prev_stage_name}.")
+
+    # Check buffer
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
-    prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
-
-    summaries_per_final = config.getint(firewall_section, 'summaries_per_final_report')
-    timezone = config.get(firewall_section, 'TimeZone')
-    hostname = config.get(firewall_section, 'SysHostname')
-    recipient_emails = config.get(firewall_section, 'final_summary_recipient_emails')
-
-    final_prompt_file_name = config.get(firewall_section, 'final_summary_prompt_file', fallback='final_summary_prompt_template.md')
-    final_prompt_file = os.path.join(prompt_dir, final_prompt_file_name)
-    model_name = config.get(firewall_section, 'final_summary_model', fallback='gemini-2.5-flash-lite')
-
     host_report_dir = os.path.join(report_dir, firewall_section)
-    summary_files_pattern = os.path.join(host_report_dir, "summary", "*", "*.json")
-    all_summary_reports = sorted(glob.glob(summary_files_pattern, recursive=True), key=os.path.getmtime, reverse=True)
     
-    reports_to_finalize = all_summary_reports[:summaries_per_final]
-
-    if len(reports_to_finalize) < summaries_per_final and not test_mode:
-        logging.warning(f"[{firewall_section}] Khong du bao cao TONG HOP ({len(reports_to_finalize)}/{summaries_per_final}) de tao bao cao FINAL.")
+    # Find reports from prev stage
+    # Logic: look into folder of prev stage
+    prev_stage_slug = report_generator.slugify(prev_stage_name)
+    search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
+    all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=True)
+    
+    reports_to_process = all_prev_reports[:threshold]
+    
+    if len(reports_to_process) < threshold and not test_mode:
+        logging.info(f"[{firewall_section}] Not enough reports ({len(reports_to_process)}/{threshold}). Waiting.")
         return False
         
-    if not reports_to_finalize:
-        logging.warning(f"[{firewall_section}] Khong tim thay file bao cao TONG HOP nao de tong hop FINAL.")
+    if not reports_to_process:
+        logging.warning(f"[{firewall_section}] No reports found to aggregate.")
         return False
 
-    logging.info(f"[{firewall_section}] Se tong hop FINAL tu {len(reports_to_finalize)} bao cao TONG HOP: {reports_to_finalize}")
+    logging.info(f"[{firewall_section}] Aggregating {len(reports_to_process)} reports for {stage_name}.")
 
     combined_analysis, start_time, end_time = [], None, None
-    for report_path in reversed(reports_to_finalize):
+    for path in reversed(reports_to_process):
         try:
-            with open(report_path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                combined_analysis.append(f"--- BAO CAO TONG HOP TU {data['analysis_start_time']} DEN {data['analysis_end_time']} ---\n\n{data['analysis_details_markdown']}")
+                combined_analysis.append(f"--- REPORT ({data['analysis_start_time']} -> {data['analysis_end_time']}) ---\n{data['analysis_details_markdown']}")
                 
-                s_time = datetime.fromisoformat(data['analysis_start_time'])
-                e_time = datetime.fromisoformat(data['analysis_end_time'])
-                if start_time is None or s_time < start_time: start_time = s_time
-                if end_time is None or e_time > end_time: end_time = e_time
-        except Exception as e:
-            logging.error(f"[{firewall_section}] Loi khi doc file TONG HOP '{report_path}': {e}")
+                st = datetime.fromisoformat(data['analysis_start_time'])
+                et = datetime.fromisoformat(data['analysis_end_time'])
+                if not start_time or st < start_time: start_time = st
+                if not end_time or et > end_time: end_time = et
+        except: pass
+        
+    prompt_file = os.path.join(system_settings.get('System', 'prompt_directory', fallback='prompts'), stage_config.get('prompt_file', 'summary_prompt_template.md'))
+    model_name = stage_config.get('model', 'gemini-2.5-flash-lite')
+    hostname = host_config.get(firewall_section, 'SysHostname')
+    timezone = host_config.get(firewall_section, 'TimeZone')
 
-    if not combined_analysis:
-        logging.error(f"[{firewall_section}] Khong the doc noi dung tu bat ky file TONG HOP nao.")
-        return False
-
-    reports_content = "\n\n".join(combined_analysis)
-    bonus_context = context_loader.read_bonus_context_files(config, firewall_section)
-    final_raw = gemini_analyzer.analyze_with_gemini(firewall_section, reports_content, bonus_context, api_key, final_prompt_file, model_name)
-
-    summary_data = {"overall_security_trend": "N/A", "key_strategic_recommendation": "N/A", "total_critical_events_final": "N/A"}
-    analysis_markdown = final_raw
+    content_to_analyze = "\n\n".join(combined_analysis)
+    bonus_context = context_loader.read_bonus_context_files(host_config, firewall_section)
+    
+    result_raw = gemini_analyzer.analyze_with_gemini(firewall_section, content_to_analyze, bonus_context, api_key, prompt_file, model_name)
+    
+    # Parse JSON
+    stats = {}
+    result_md = result_raw
     try:
-        json_match = re.search(r'```json\n(.*?)\n```', final_raw, re.DOTALL)
-        if json_match:
-            summary_data = json.loads(json_match.group(1))
-            analysis_markdown = final_raw.replace(json_match.group(0), "").strip()
-    except Exception as e:
-        logging.warning(f"[{firewall_section}] Khong the trich xuat JSON FINAL: {e}")
-
+        match = re.search(r'```json\n(.*?)\n```', result_raw, re.DOTALL)
+        if match:
+            stats = json.loads(match.group(1))
+            result_md = result_raw.replace(match.group(0), "").strip()
+    except: pass
+    
     report_data = {
         "hostname": hostname, "analysis_start_time": start_time.isoformat() if start_time else "N/A",
         "analysis_end_time": end_time.isoformat() if end_time else "N/A",
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "summary_stats": summary_data, "analysis_details_markdown": analysis_markdown,
-        "summarized_files": reports_to_finalize
+        "summary_stats": stats, "analysis_details_markdown": result_md,
+        "source_reports": reports_to_process
     }
-    report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, report_level='final')
+    
+    report_file = report_generator.save_structured_report(firewall_section, report_data, timezone, report_dir, stage_name)
+    
+    # Email
+    recipients = stage_config.get('recipient_emails', '')
+    if recipients:
+        email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
+        smtp = get_smtp_config_for_stage(system_settings, host_config, firewall_section)
+        if smtp:
+            try:
+                # Use summary template
+                tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'summary_email_template.html')
+                if not os.path.exists(tpl_path): tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'email_template.html')
+                
+                with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
+                
+                # Try to map generic keys
+                issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
+                blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
+                
+                body = tpl.format(
+                    hostname=hostname, analysis_result=markdown.markdown(result_md),
+                    total_blocked=blocked, top_issue=issue, critical_alerts="N/A",
+                    start_time=start_time.strftime('%d-%m') if start_time else "?", 
+                    end_time=end_time.strftime('%d-%m') if end_time else "?"
+                )
+                atts = reports_to_process # Attach JSONs
+                diag = host_config.get(firewall_section, 'NetworkDiagram', fallback=None)
+                email_service.send_email(firewall_section, email_subject, body, smtp, recipients, diag, atts)
+            except Exception as e: logging.error(f"Email error {stage_name}: {e}")
 
-    email_subject = f"Báo cáo Hệ thống [{hostname}] - {datetime.now(pytz.timezone(timezone)).strftime('%Y-%m-%d')}"
-    try:
-        smtp_config = get_smtp_config(system_settings, config, firewall_section)
-        if not smtp_config: return True
-            
-        email_template_path = os.path.join(prompt_dir, '..', 'final_summary_email_template.html')
-        with open(email_template_path, 'r', encoding='utf-8') as f: email_template = f.read()
-
-        analysis_html = markdown.markdown(analysis_markdown)
-        email_body = email_template.format(
-            hostname=hostname, analysis_result=analysis_html,
-            security_trend=summary_data.get("overall_security_trend", "N/A"),
-            key_recommendation=summary_data.get("key_strategic_recommendation", "N/A"),
-            total_events=summary_data.get("total_critical_events_final", "N/A"),
-            start_time=start_time.strftime('%H:%M:%S %d-%m-%Y') if start_time else "N/A",
-            end_time=end_time.strftime('%H:%M:%S %d-%m-%Y') if end_time else "N/A"
-        )
-        network_diagram_path = config.get(firewall_section, 'NetworkDiagram', fallback=None)
-        email_service.send_email(
-            firewall_id=firewall_section, subject=email_subject, body_html=email_body, 
-            smtp_config=smtp_config, recipient_emails_str=recipient_emails,
-            network_diagram_path=network_diagram_path,
-            attachment_paths=reports_to_finalize
-        )
-    except Exception as e:
-        logging.error(f"[{firewall_section}] Loi khi tao/gui email FINAL: {e}", exc_info=True)
-
-    logging.info(f"[{firewall_section}] Hoan tat chu ky FINAL.")
     return True
+
+# --- MAIN LOOP ---
+
+def process_host_pipeline(host_config, firewall_section, system_settings, test_mode=False):
+    """
+    Execute the pipeline. 
+    1. Check Stage 0 (Schedule). If run, increment Buffer 1.
+    2. Loop Stage i from 1 to N:
+       Check Buffer i >= Threshold i.
+       If run, decrement Buffer i (or reset), increment Buffer i+1.
+    """
+    # Get Pipeline Config
+    pipeline_json = host_config.get(firewall_section, 'pipeline_config', fallback='[]')
+    try:
+        pipeline = json.loads(pipeline_json)
+    except:
+        logging.error(f"[{firewall_section}] Invalid pipeline config.")
+        return
+
+    if not pipeline:
+        logging.warning(f"[{firewall_section}] Empty pipeline.")
+        return
+        
+    api_key = host_config.get(firewall_section, 'GeminiAPIKey', fallback='')
+    if not api_key or "YOUR_API_KEY" in api_key: return
+
+    now = datetime.now()
+    
+    # --- 1. Process Stage 0 (Log Source) ---
+    stage0_config = pipeline[0]
+    if stage0_config.get('enabled', True):
+        run_interval = host_config.getint(firewall_section, 'run_interval_seconds', fallback=3600)
+        last_run = state_manager.get_last_cycle_run_timestamp(firewall_section, test_mode)
+        
+        should_run_stage0 = False
+        if not last_run: should_run_stage0 = True
+        elif (now - last_run).total_seconds() >= run_interval: should_run_stage0 = True
+        
+        if should_run_stage0:
+            success = run_pipeline_stage_0(host_config, firewall_section, stage0_config, api_key, system_settings, test_mode)
+            if success:
+                state_manager.save_last_cycle_run_timestamp(now, firewall_section, test_mode)
+                if len(pipeline) > 1:
+                    curr_buff = state_manager.get_stage_buffer_count(firewall_section, 1, test_mode)
+                    state_manager.save_stage_buffer_count(firewall_section, 1, curr_buff + 1, test_mode)
+                    logging.info(f"[{firewall_section}] Stage 0 Success. Stage 1 buffer: {curr_buff+1}")
+
+    for i in range(1, len(pipeline)):
+        current_stage = pipeline[i]
+        if not current_stage.get('enabled', True): continue
+        
+        prev_stage = pipeline[i-1]
+        
+        # Check Threshold
+        threshold = int(current_stage.get('trigger_threshold', 10))
+        current_buffer = state_manager.get_stage_buffer_count(firewall_section, i, test_mode)
+        
+        if current_buffer >= threshold:
+            logging.info(f"[{firewall_section}] Triggering Stage {i} ({current_stage['name']}). Buffer {current_buffer} >= {threshold}")
+            
+            success = run_pipeline_stage_n(host_config, firewall_section, i, current_stage, prev_stage, api_key, system_settings, test_mode)
+            
+            if success:
+                state_manager.save_stage_buffer_count(firewall_section, i, 0, test_mode)
+                
+                # Increment next stage buffer
+                if i + 1 < len(pipeline):
+                    next_buff = state_manager.get_stage_buffer_count(firewall_section, i+1, test_mode)
+                    state_manager.save_stage_buffer_count(firewall_section, i+1, next_buff + 1, test_mode)
+                    logging.info(f"[{firewall_section}] Stage {i} Success. Stage {i+1} buffer: {next_buff+1}")
+
 
 def main():
-    """Vong lap chinh cua chuong trinh."""
     while True:
         try:
-            # // doc cau hinh he thong mot lan dau vong lap
-            system_config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-            if not os.path.exists(SYSTEM_SETTINGS_FILE):
-                logging.error(f"Loi: File cau hinh he thong '{SYSTEM_SETTINGS_FILE}' khong ton tai. Thoat.")
-                return
-            system_config.read(SYSTEM_SETTINGS_FILE)
+            sys_conf = configparser.ConfigParser(interpolation=None); sys_conf.read(SYSTEM_SETTINGS_FILE)
+            host_conf = configparser.ConfigParser(interpolation=None); host_conf.read(CONFIG_FILE)
             
-            # // doc cau hinh host
-            host_config = configparser.ConfigParser(interpolation=None)
-            if not os.path.exists(CONFIG_FILE):
-                logging.error(f"Loi: File cau hinh host '{CONFIG_FILE}' khong ton tai. Thoat.")
-                return
-            host_config.read(CONFIG_FILE)
-
-            firewall_sections = [s for s in host_config.sections() if s.startswith('Firewall_')]
+            for sec in [s for s in host_conf.sections() if s.startswith('Firewall_')]:
+                if host_conf.getboolean(sec, 'enabled', fallback=True):
+                    process_host_pipeline(host_conf, sec, sys_conf)
+                    
+            sleep_time = sys_conf.getint('System', 'scheduler_check_interval_seconds', fallback=60)
+            logging.info(f"Scheduler sleeping {sleep_time}s...")
+            time.sleep(sleep_time)
             
-            if not firewall_sections:
-                logging.warning("Khong tim thay section firewall nao (vi du: [Firewall_...]) trong config.ini.")
-            else:
-                now = datetime.now()
-                logging.info(f"Scheduler: Thuc day luc {now.strftime('%Y-%m-%d %H:%M:%S')} de kiem tra lich.")
-
-                for section in firewall_sections:
-                    if not host_config.getboolean(section, 'enabled', fallback=True):
-                        logging.info(f"[{section}] Host dang o trang thai 'disabled'. Bo qua.")
-                        continue
-
-                    run_interval = host_config.getint(section, 'run_interval_seconds', fallback=3600)
-                    last_run_time = state_manager.get_last_cycle_run_timestamp(section)
-
-                    should_run = False
-                    if last_run_time is None:
-                        logging.info(f"[{section}] Chua co lich su chay, se thuc thi lan dau.")
-                        should_run = True
-                    else:
-                        elapsed_seconds = (now - last_run_time).total_seconds()
-                        if elapsed_seconds >= run_interval:
-                            logging.info(f"[{section}] Da den lich chay (da qua {int(elapsed_seconds)}/{run_interval} giay).")
-                            should_run = True
-
-                    if should_run:
-                        logging.info(f"--- BAT DAU XU LY CHO FIREWALL: {section} ---")
-                        try:
-                            gemini_api_key = host_config.get(section, 'GeminiAPIKey', fallback=None)
-                            if not gemini_api_key or "YOUR_API_KEY" in gemini_api_key:
-                                logging.error(f"[{section}] Loi: 'GeminiAPIKey' chua duoc thiet lap. Bo qua.")
-                                continue
-
-                            run_analysis_cycle(host_config, section, gemini_api_key, system_config)
-                            
-                            if host_config.getboolean(section, 'summary_enabled', fallback=False):
-                                reports_per_summary = host_config.getint(section, 'reports_per_summary')
-                                current_count = state_manager.get_summary_count(section) + 1
-                                
-                                logging.info(f"[{section}] Dem bao cao tong hop: {current_count}/{reports_per_summary}")
-                                
-                                if current_count >= reports_per_summary:
-                                    logging.info(f"[{section}] Dat nguong, bat dau tao bao cao TONG HOP.")
-                                    summary_success = run_summary_analysis_cycle(host_config, section, gemini_api_key, system_config)
-                                    state_manager.save_summary_count(0, section)
-                                    
-                                    if summary_success and host_config.getboolean(section, 'final_summary_enabled', fallback=False):
-                                        summaries_per_final = host_config.getint(section, 'summaries_per_final_report')
-                                        final_current_count = state_manager.get_final_summary_count(section) + 1
-                                        
-                                        logging.info(f"[{section}] Dem bao cao FINAL: {final_current_count}/{summaries_per_final}")
-
-                                        if final_current_count >= summaries_per_final:
-                                            logging.info(f"[{section}] Dat nguong, bat dau tao bao cao FINAL.")
-                                            run_final_summary_analysis_cycle(host_config, section, gemini_api_key, system_config)
-                                            state_manager.save_final_summary_count(0, section)
-                                        else:
-                                            state_manager.save_final_summary_count(final_current_count, section)
-                                else:
-                                    state_manager.save_summary_count(current_count, section)
-                            else:
-                                if os.path.exists(f".summary_report_count_{section}"):
-                                    state_manager.save_summary_count(0, section)
-                                if os.path.exists(f".final_summary_report_count_{section}"):
-                                    state_manager.save_final_summary_count(0, section)
-                            
-                            state_manager.save_last_cycle_run_timestamp(now, section)
-
-                        except Exception as e:
-                            logging.error(f"Loi nghiem trong khi xu ly firewall '{section}': {e}", exc_info=True)
-                        
-                        logging.info(f"--- KET THUC XU LY CHO FIREWALL: {section} ---")
-
-            check_interval = system_config.getint('System', 'SchedulerCheckIntervalSeconds', fallback=60)
-            logging.info(f"Scheduler: Da kiem tra xong. Se ngu trong {check_interval} giay.")
-            time.sleep(check_interval)
-        except Exception as main_loop_error:
-            logging.critical(f"Loi nghiem trong trong vong lap chinh: {main_loop_error}", exc_info=True)
-            logging.info("Khoi dong lai vong lap sau 60 giay.")
+        except Exception as e:
+            logging.error(f"Main Loop Error: {e}", exc_info=True)
             time.sleep(60)
-
 
 if __name__ == "__main__":
     main()
