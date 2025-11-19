@@ -132,7 +132,7 @@ const ReportFilters = ({ filters, onFilterChange, uniqueTypes = [] }) => {
                 borderRadius="md"
               >
                 <option value="success">Success</option>
-                <option value="error">Error / Quota</option>
+                <option value="error">Failed</option>
               </Select>
             </FormControl>
 

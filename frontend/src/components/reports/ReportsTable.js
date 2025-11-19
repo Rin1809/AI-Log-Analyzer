@@ -29,7 +29,7 @@ const ReportsTable = ({ reports, onViewRaw, onViewTemplate, onDownload, onDelete
   const getStatusContent = (stats) => {
     const isError = !stats || Object.keys(stats).length === 0 || Object.values(stats).includes('N/A');
     return isError ? (
-      <Text color="orange.500" fontWeight="medium">Warning</Text>
+      <Text color="orange.500" fontWeight="medium">Failed</Text>
     ) : (
       <Text color="green.500" fontWeight="medium">Success</Text>
     );

@@ -6,11 +6,11 @@ import MainDashboard from './pages/MainDashboard';
 import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage'; 
-import HostFormPage from './pages/HostFormPage'; // // import trang moi
+import HostFormPage from './pages/HostFormPage'; 
 
 const theme = extendTheme({
   config: {
-    initialColorMode: 'dark',
+    initialColorMode: 'light',
     useSystemColorMode: false,
   },
   colors: {
