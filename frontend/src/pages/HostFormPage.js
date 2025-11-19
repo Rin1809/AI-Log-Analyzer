@@ -207,7 +207,10 @@ const HostFormPage = () => {
 
     const addEmail = () => {
         if (!emailInput || currentStageIndex === null) return;
-        const currentEmails = pipeline[currentStageIndex].recipient_emails.split(',').map(e=>e.trim()).filter(Boolean);
+        // Defensive: use fallback || '' to avoid split on undefined
+        const rawEmails = pipeline[currentStageIndex].recipient_emails || '';
+        const currentEmails = rawEmails.split(',').map(e=>e.trim()).filter(Boolean);
+        
         if (!currentEmails.includes(emailInput.trim())) {
             const newEmails = [...currentEmails, emailInput.trim()].join(',');
             updateStage(currentStageIndex, 'recipient_emails', newEmails);
@@ -217,7 +220,10 @@ const HostFormPage = () => {
 
     const removeEmail = (emailToRemove) => {
         if (currentStageIndex === null) return;
-        const currentEmails = pipeline[currentStageIndex].recipient_emails.split(',').map(e=>e.trim()).filter(Boolean);
+        // Defensive: use fallback || '' to avoid split on undefined
+        const rawEmails = pipeline[currentStageIndex].recipient_emails || '';
+        const currentEmails = rawEmails.split(',').map(e=>e.trim()).filter(Boolean);
+        
         const newEmails = currentEmails.filter(e => e !== emailToRemove).join(',');
         updateStage(currentStageIndex, 'recipient_emails', newEmails);
     };
@@ -432,7 +438,7 @@ const HostFormPage = () => {
                                             <FormControl gridColumn={idx > 0 ? "span 1" : "span 2"}>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">Notifications</FormLabel>
                                                 <Button size="xs" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
-                                                    Manage Emails ({stage.recipient_emails ? stage.recipient_emails.split(',').length : 0})
+                                                    Manage Emails ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
                                                 </Button>
                                             </FormControl>
                                         </SimpleGrid>
@@ -480,7 +486,7 @@ const HostFormPage = () => {
                             <IconButton icon={<AddIcon />} onClick={addEmail} />
                         </HStack>
                         <Wrap>
-                            {currentStageIndex !== null && pipeline[currentStageIndex]?.recipient_emails.split(',').filter(Boolean).map(email => (
+                            {currentStageIndex !== null && (pipeline[currentStageIndex]?.recipient_emails || '').split(',').filter(Boolean).map(email => (
                                 <WrapItem key={email}>
                                     <Tag size="md" borderRadius="full" variant="solid" colorScheme="blue">
                                         <TagLabel>{email}</TagLabel>

@@ -23,7 +23,7 @@ system_settings_test.ini
 *.log
 backend/Bonus_context/pfsense.log
 
-
+.test_buffer_count_Firewall_*
 backend/test_reports/
 
 
