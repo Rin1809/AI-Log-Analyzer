@@ -2,7 +2,29 @@ import React from 'react';
 import { Box, Center, Text, VStack, HStack, useColorModeValue } from '@chakra-ui/react';
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from 'recharts';
 
-const COLORS = ['#3182CE', '#805AD5', '#D69E2E', '#38A169', '#DD6B20', '#00A3C4'];
+// Extended palette: 20 distinct colors (Synced with LineChart)
+const COLORS = [
+    '#3182CE', // Blue
+    '#805AD5', // Purple
+    '#D69E2E', // Mustard
+    '#38A169', // Green
+    '#DD6B20', // Orange
+    '#00A3C4', // Cyan
+    '#D53F8C', // Pink
+    '#E53E3E', // Red
+    '#319795', // Teal
+    '#5A67D8', // Indigo
+    '#718096', // Gray
+    '#F6AD55', // Light Orange
+    '#68D391', // Light Green
+    '#63B3ED', // Light Blue
+    '#B794F4', // Light Purple
+    '#F687B3', // Light Pink
+    '#FC8181', // Light Red
+    '#4FD1C5', // Light Teal
+    '#ECC94B', // Yellow
+    '#A0AEC0'  // Cool Gray
+];
 
 const CustomLegend = ({ payload }) => {
     const textColor = useColorModeValue('gray.600', 'gray.300');
