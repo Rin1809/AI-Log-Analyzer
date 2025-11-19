@@ -27,7 +27,16 @@ const ReportsPage = () => {
   const [selectedReport, setSelectedReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState({ hostname: '', type: '' });
+  
+  // Expanded Filters State
+  const [filters, setFilters] = useState({ 
+      hostname: '', 
+      type: '',
+      status: '',
+      startDate: '',
+      endDate: ''
+  });
+  
   const [currentPage, setCurrentPage] = useState(1);
   const toast = useToast();
   const { isOpen: isReportModalOpen, onOpen: onReportModalOpen, onClose: onReportModalClose } = useDisclosure();
@@ -43,7 +52,6 @@ const ReportsPage = () => {
       const reportsRes = await axios.get('/api/reports', apiParams);
       setReports(reportsRes.data);
     } catch (err) {
-      // // fix: Thêm cặp ngoặc nhọn {} cho block catch
       console.error(err);
       setError(`Failed to connect to backend. Details: ${err.message}`);
     } finally {
@@ -57,13 +65,58 @@ const ReportsPage = () => {
     return () => clearInterval(intervalId);
   }, [fetchData, isTestMode]);
 
+  // --- Helper Logic for Filtering ---
+  const checkStatus = (stats, filterStatus) => {
+      if (!filterStatus) return true;
+      
+      const isError = !stats || Object.keys(stats).length === 0 || Object.values(stats).includes('N/A');
+      
+      if (filterStatus === 'error') return isError;
+      if (filterStatus === 'success') return !isError;
+      return true;
+  };
+
+  const checkDateRange = (reportDateStr, startStr, endStr) => {
+      if (!startStr && !endStr) return true;
+      
+      const reportDate = new Date(reportDateStr);
+      reportDate.setHours(0,0,0,0); // Normalize
+
+      if (startStr) {
+          const start = new Date(startStr);
+          if (reportDate < start) return false;
+      }
+      if (endStr) {
+          const end = new Date(endStr);
+          if (reportDate > end) return false;
+      }
+      return true;
+  };
+
+  // --- Main Filtering Logic ---
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
+      // 1. Hostname
       const hostnameMatch = report.hostname.toLowerCase().includes(filters.hostname.toLowerCase());
+      
+      // 2. Type
       const typeMatch = filters.type ? report.type === filters.type : true;
-      return hostnameMatch && typeMatch;
+      
+      // 3. Status
+      const statusMatch = checkStatus(report.summary_stats, filters.status);
+
+      // 4. Date Range
+      const dateMatch = checkDateRange(report.generated_time, filters.startDate, filters.endDate);
+
+      return hostnameMatch && typeMatch && statusMatch && dateMatch;
     });
   }, [reports, filters]);
+
+  // Extract Unique Types for Dropdown
+  const uniqueTypes = useMemo(() => {
+      const types = new Set(reports.map(r => r.type));
+      return Array.from(types).sort();
+  }, [reports]);
 
   useEffect(() => {
     setCurrentPage(1); // Reset page when filters change
@@ -96,8 +149,14 @@ const ReportsPage = () => {
   return (
     <VStack spacing={8} align="stretch">
       <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-        <Heading size="lg" fontWeight="normal" mb={4}>Generated Reports</Heading>
-        <ReportFilters filters={filters} onFilterChange={setFilters} />
+        <Heading size="lg" fontWeight="normal" mb={6}>Generated Reports</Heading>
+        
+        <ReportFilters 
+            filters={filters} 
+            onFilterChange={setFilters} 
+            uniqueTypes={uniqueTypes}
+        />
+        
         <ReportsTable reports={currentReports} onViewReport={handleViewReport} />
         <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
       </Box>
