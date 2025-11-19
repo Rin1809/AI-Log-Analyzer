@@ -6,7 +6,7 @@ import {
   FormControl, FormLabel, Input, Switch, Grid, GridItem, Text, Select, Radio, RadioGroup, Stack,
   IconButton, Tag, TagLabel, TagCloseButton, Wrap, useDisclosure, Flex,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Center, HStack,
-  Checkbox, InputGroup, InputLeftElement
+  Checkbox, InputGroup, InputLeftElement, CloseButton, Tooltip
 } from '@chakra-ui/react';
 import { ArrowBackIcon, AddIcon, SearchIcon, DeleteIcon, AttachmentIcon } from '@chakra-ui/icons';
 
@@ -28,8 +28,26 @@ const HostFormPage = () => {
   const isEditing = Boolean(hostId);
   const toast = useToast();
 
-  // Define hooks at the top level
+  // --- Define Color Styles Hooks ---
   const hoverBg = useColorModeValue('gray.50', 'gray.700');
+  
+  // Save button styles
+  const saveButtonBg = useColorModeValue('gray.800', 'white');
+  const saveButtonColor = useColorModeValue('white', 'gray.800');
+  const saveButtonHoverBg = useColorModeValue('black', 'gray.200');
+
+  // Button Styles for Context/Diagram Actions (Neutral Gray -> Danger Red)
+  const btnGrayBg = useColorModeValue('gray.200', 'gray.600');
+  const btnGrayColor = useColorModeValue('gray.600', 'gray.200');
+  const btnGrayHoverBg = useColorModeValue('gray.300', 'gray.500');
+  
+  const btnDangerHoverBg = useColorModeValue('red.100', 'red.900');
+  const btnDangerHoverColor = useColorModeValue('red.600', 'red.200');
+
+  const btnAddBg = useColorModeValue('gray.100', 'gray.700');
+  const btnAddHoverBg = useColorModeValue('blue.50', 'blue.900');
+  const btnAddHoverColor = useColorModeValue('blue.600', 'blue.200');
+
 
   const [formData, setFormData] = useState({
     syshostname: '', logfile: '/var/log/filter.log',
@@ -56,7 +74,7 @@ const HostFormPage = () => {
   
   // States for Context Files UI
   const [contextSearchTerm, setContextSearchTerm] = useState('');
-  const [fileToDelete, setFileToDelete] = useState(null);
+  const [filesToDelete, setFilesToDelete] = useState([]); // For bulk delete
 
   const { isOpen: isEmailModalOpen, onOpen: onEmailModalOpen, onClose: onEmailModalClose } = useDisclosure();
   const { isOpen: isDeleteFileModalOpen, onOpen: onDeleteFileModalOpen, onClose: onDeleteFileModalClose } = useDisclosure();
@@ -67,7 +85,6 @@ const HostFormPage = () => {
 
   const fetchData = useCallback(async () => {
     try {
-     
       const [modelsRes, contextFilesRes, settingsRes] = await Promise.all([
         axios.get('/api/gemini-models'),
         axios.get('/api/context-files', { params: { test_mode: isTestMode }}),
@@ -76,7 +93,6 @@ const HostFormPage = () => {
       
       setGeminiModels(modelsRes.data);
       setAvailableContextFiles(contextFilesRes.data.map(f => `Bonus_context/${f}`));
-      
 
       const profiles = settingsRes.data.smtp_profiles || {};
       setSmtpProfiles(Object.keys(profiles));
@@ -147,30 +163,47 @@ const HostFormPage = () => {
       }
   };
   
-  const handleDeleteContextFileClick = (file) => {
-      setFileToDelete(file);
+  // Logic for Bulk Delete Button
+  const handleBulkDeleteClick = () => {
+      const files = formData.context_files.filter(f => availableContextFiles.includes(f));
+      if (files.length === 0) return;
+      setFilesToDelete(files);
       onDeleteFileModalOpen();
-  };
+  }
   
-  const confirmDeleteFile = async () => {
-      if (!fileToDelete) return;
-      try {
-          const filename = fileToDelete.split('/').pop();
-          await axios.delete(`/api/context-files/${filename}`, { params: { test_mode: isTestMode } });
-          
-          setAvailableContextFiles(prev => prev.filter(f => f !== fileToDelete));
-          setFormData(prev => ({
-              ...prev,
-              context_files: prev.context_files.filter(f => f !== fileToDelete)
-          }));
-          
-          toast({ title: "Deleted", description: `File ${filename} deleted.`, status: "success" });
-      } catch (err) {
-          toast({ title: "Delete Failed", description: err.response?.data?.detail || err.message, status: "error" });
-      } finally {
-          onDeleteFileModalClose();
-          setFileToDelete(null);
+  const confirmDeleteFiles = async () => {
+      if (filesToDelete.length === 0) return;
+      
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const file of filesToDelete) {
+          try {
+              const filename = file.split('/').pop();
+              await axios.delete(`/api/context-files/${filename}`, { params: { test_mode: isTestMode } });
+              successCount++;
+          } catch (err) {
+              console.error(`Failed to delete ${file}`, err);
+              failCount++;
+          }
       }
+      
+      // Refresh local state
+      const deletedFilesSet = new Set(filesToDelete);
+      setAvailableContextFiles(prev => prev.filter(f => !deletedFilesSet.has(f)));
+      setFormData(prev => ({
+          ...prev,
+          context_files: prev.context_files.filter(f => !deletedFilesSet.has(f))
+      }));
+      
+      toast({ 
+          title: "Bulk Delete Complete", 
+          description: `Deleted ${successCount} files. ${failCount > 0 ? `Failed to delete ${failCount} files.` : ''}`, 
+          status: failCount === 0 ? "success" : "warning" 
+      });
+
+      onDeleteFileModalClose();
+      setFilesToDelete([]);
   };
 
   const handleContextFileToggle = (filePath) => {
@@ -231,6 +264,9 @@ const HostFormPage = () => {
   const filteredContextFiles = availableContextFiles.filter(file => 
       file.toLowerCase().includes(contextSearchTerm.toLowerCase())
   );
+  
+  // Check if there are selected files to enable trash can
+  const hasSelectedFiles = formData.context_files.length > 0;
 
   if (loading) return <Center h="80vh"><Spinner size="xl" /></Center>;
   if (error) return <Alert status="error"><AlertIcon />{error}</Alert>;
@@ -346,6 +382,7 @@ const HostFormPage = () => {
                     <FormControl>
                         <FormLabel fontSize="sm">Network Diagram</FormLabel>
                         <Box 
+                            position="relative"
                             borderWidth="2px" 
                             borderStyle="dashed" 
                             borderColor="gray.300" 
@@ -354,7 +391,7 @@ const HostFormPage = () => {
                             textAlign="center" 
                             cursor="pointer"
                             _hover={{ borderColor: "blue.400", bg: hoverBg }}
-                            onClick={() => diagramInputRef.current.click()}
+                            onClick={() => !formData.networkdiagram && diagramInputRef.current.click()}
                         >
                              <input 
                                 type="file" 
@@ -363,18 +400,31 @@ const HostFormPage = () => {
                                 accept="image/png, image/jpeg, image/svg+xml" 
                                 onChange={handleNetworkDiagramUpload} 
                              />
-                             <VStack spacing={2}>
-                                <AttachmentIcon boxSize={6} color="gray.400" />
-                                <Text fontSize="sm" color="gray.500">
-                                    {formData.networkdiagram ? formData.networkdiagram.split('/').pop() : "Click to upload diagram"}
-                                </Text>
-                             </VStack>
+                             {formData.networkdiagram ? (
+                                <Box position="relative">
+                                    <VStack spacing={2}>
+                                        <AttachmentIcon boxSize={6} color="green.500" />
+                                        <Text fontSize="sm" fontWeight="bold">{formData.networkdiagram.split('/').pop()}</Text>
+                                    </VStack>
+                                    <CloseButton 
+                                        position="absolute" 
+                                        top="-10px" 
+                                        right="-10px" 
+                                        size="sm" 
+                                        rounded="full"
+                                        bg={btnGrayBg}
+                                        color={btnGrayColor}
+                                        _hover={{ bg: "red.500", color: "white" }}
+                                        onClick={(e) => { e.stopPropagation(); setFormData(p => ({...p, networkdiagram: ''})); }}
+                                    />
+                                </Box>
+                             ) : (
+                                <VStack spacing={2}>
+                                    <AttachmentIcon boxSize={6} color="gray.400" />
+                                    <Text fontSize="sm" color="gray.500">Click to upload diagram</Text>
+                                </VStack>
+                             )}
                         </Box>
-                         {formData.networkdiagram && (
-                            <Button size="xs" variant="ghost" colorScheme="red" mt={2} onClick={() => setFormData(p => ({...p, networkdiagram: ''}))}>
-                                Remove Diagram
-                            </Button>
-                         )}
                     </FormControl>
 
                     {/* Context Files Section */}
@@ -395,32 +445,41 @@ const HostFormPage = () => {
                                 style={{ display: 'none' }} 
                                 onChange={handleContextFileUpload} 
                              />
-                            <IconButton 
-                                icon={<AddIcon />} 
-                                size="sm" 
-                                aria-label="Upload Context File" 
-                                onClick={() => contextInputRef.current.click()} 
-                            />
+                            <Tooltip label="Upload New File" hasArrow>
+                                <IconButton 
+                                    icon={<AddIcon />} 
+                                    size="sm" 
+                                    bg={btnAddBg}
+                                    color="gray.500"
+                                    _hover={{ bg: btnAddHoverBg, color: btnAddHoverColor }}
+                                    aria-label="Upload Context File" 
+                                    onClick={() => contextInputRef.current.click()} 
+                                />
+                            </Tooltip>
+                            <Tooltip label="Delete Selected Files from Server" hasArrow>
+                                <IconButton 
+                                    icon={<DeleteIcon />} 
+                                    size="sm" 
+                                    bg={hasSelectedFiles ? btnGrayBg : "transparent"}
+                                    color={hasSelectedFiles ? btnGrayColor : "gray.300"}
+                                    _hover={hasSelectedFiles ? { bg: btnDangerHoverBg, color: btnDangerHoverColor } : {}}
+                                    isDisabled={!hasSelectedFiles}
+                                    aria-label="Delete Selected Files"
+                                    onClick={handleBulkDeleteClick}
+                                />
+                            </Tooltip>
                         </HStack>
                         
                         <VStack align="stretch" p={2} borderWidth={1} borderRadius="md" maxH="250px" overflowY="auto" spacing={0}>
                             {filteredContextFiles.length > 0 ? filteredContextFiles.map(file => (
-                                <HStack key={file} justify="space-between" p={2} _hover={{ bg: hoverBg }} borderRadius="sm">
+                                <HStack key={file} p={2} _hover={{ bg: hoverBg }} borderRadius="sm">
                                     <Checkbox 
                                         isChecked={formData.context_files.includes(file)} 
                                         onChange={() => handleContextFileToggle(file)}
                                         flex="1"
                                     >
-                                        <Text fontSize="sm" isTruncated maxW="300px" title={file}>{file.split('/').pop()}</Text>
+                                        <Text fontSize="sm" isTruncated maxW="350px" title={file}>{file.split('/').pop()}</Text>
                                     </Checkbox>
-                                    <IconButton 
-                                        icon={<DeleteIcon />} 
-                                        size="xs" 
-                                        variant="ghost" 
-                                        colorScheme="red" 
-                                        aria-label="Delete file"
-                                        onClick={() => handleDeleteContextFileClick(file)}
-                                    />
                                 </HStack>
                             )) : (
                                 <Text fontSize="sm" color="gray.500" textAlign="center" py={2}>No files found.</Text>
@@ -431,8 +490,18 @@ const HostFormPage = () => {
             </FormCard></GridItem>
         </Grid>
         
-        <Box pt={4}>
-          <Button type="submit" isLoading={isSaving} colorScheme="blue">Save Host</Button>
+        <Box pt={4} pb={10}>
+          <Button 
+            type="submit" 
+            isLoading={isSaving} 
+            size="lg"
+            bg={saveButtonBg} 
+            color={saveButtonColor} 
+            _hover={{ bg: saveButtonHoverBg }}
+            boxShadow="md"
+          >
+            Save Host
+          </Button>
         </Box>
       </VStack>
 
@@ -462,19 +531,26 @@ const HostFormPage = () => {
         </ModalContent>
       </Modal>
       
-
        <Modal isOpen={isDeleteFileModalOpen} onClose={onDeleteFileModalClose} isCentered>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Confirm Delete File</ModalHeader>
+          <ModalHeader color="red.500">Confirm Bulk Delete</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            Are you sure you want to delete <Text as="span" fontWeight="bold">{fileToDelete?.split('/').pop()}</Text>?
-            <Text fontSize="sm" color="red.500" mt={2}>This will remove the file from the server and affect all hosts using it.</Text>
+            <Text mb={2}>You are about to delete <strong>{filesToDelete.length}</strong> file(s) from the server:</Text>
+            <Box maxH="150px" overflowY="auto" bg="gray.100" p={2} borderRadius="md" mb={3} _dark={{bg: 'gray.700'}}>
+                <ul style={{paddingLeft: '20px'}}>
+                    {filesToDelete.map(f => <li key={f}><Text fontSize="sm">{f.split('/').pop()}</Text></li>)}
+                </ul>
+            </Box>
+            <Alert status="warning" variant="left-accent">
+                <AlertIcon />
+                This action cannot be undone and will affect ALL hosts using these files.
+            </Alert>
           </ModalBody>
           <ModalFooter>
             <Button variant="ghost" mr={3} onClick={onDeleteFileModalClose}>Cancel</Button>
-            <Button colorScheme="red" onClick={confirmDeleteFile}>Delete Permanently</Button>
+            <Button colorScheme="red" onClick={confirmDeleteFiles}>Delete Permanently</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

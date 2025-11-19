@@ -35,10 +35,21 @@ import {
   InputGroup,
   InputLeftElement,
   Input,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
 
 const POLLING_INTERVAL = 15000;
+
+// Custom 3-dots icon for Menu
+const ThreeDotsIcon = (props) => (
+    <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
+        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+    </svg>
+);
 
 const StatusBadge = ({ isEnabled }) => {
   const onlineColor = useColorModeValue('green.500', 'green.400');
@@ -197,14 +208,23 @@ const HostStatusPage = () => {
                     <Switch size="md" id={`switch-${fw.id}`} isChecked={fw.is_enabled} onChange={() => handleToggleStatus(fw.id)} colorScheme="blue" />
                   </Td>
                   <Td>
-                    <HStack spacing={2}>
-                      <Tooltip label="Edit Host" placement="top" hasArrow bg="gray.600" color="white">
-                        <IconButton size="sm" variant="ghost" icon={<EditIcon />} onClick={() => navigate(`/status/edit/${fw.id}`)} />
-                      </Tooltip>
-                      <Tooltip label="Delete Host" placement="top" hasArrow bg="gray.600" color="white">
-                        <IconButton size="sm" variant="ghost" colorScheme="red" icon={<DeleteIcon />} onClick={() => handleDeleteClick(fw)} />
-                      </Tooltip>
-                    </HStack>
+                    <Menu>
+                        <MenuButton 
+                            as={IconButton} 
+                            icon={<ThreeDotsIcon style={{ width: '20px', height: '20px' }} />} 
+                            variant="ghost" 
+                            size="sm"
+                            aria-label="Options"
+                        />
+                        <MenuList>
+                            <MenuItem icon={<EditIcon />} onClick={() => navigate(`/status/edit/${fw.id}`)}>
+                                Edit Configuration
+                            </MenuItem>
+                            <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleDeleteClick(fw)}>
+                                Delete Host
+                            </MenuItem>
+                        </MenuList>
+                    </Menu>
                   </Td>
                 </Tr>
               ))
