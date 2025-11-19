@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Heading, VStack, Spinner, Alert, AlertIcon, useToast, useColorModeValue, Button,
   FormControl, FormLabel, Input, Switch, Grid, GridItem, Text, Select, Radio, RadioGroup, Stack,
   IconButton, Tag, TagLabel, TagCloseButton, Wrap, useDisclosure, Flex,
-  Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Center, HStack
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Center, HStack,
+  Checkbox, InputGroup, InputLeftElement
 } from '@chakra-ui/react';
-import { ArrowBackIcon, AddIcon } from '@chakra-ui/icons';
+import { ArrowBackIcon, AddIcon, SearchIcon, DeleteIcon, AttachmentIcon } from '@chakra-ui/icons';
 
 const FormCard = ({ title, children }) => {
   const cardBg = useColorModeValue('white', 'gray.800');
@@ -26,6 +27,9 @@ const HostFormPage = () => {
   const navigate = useNavigate();
   const isEditing = Boolean(hostId);
   const toast = useToast();
+
+  // Define hooks at the top level
+  const hoverBg = useColorModeValue('gray.50', 'gray.700');
 
   const [formData, setFormData] = useState({
     syshostname: '', logfile: '/var/log/filter.log',
@@ -49,9 +53,18 @@ const HostFormPage = () => {
   const [hoursType, setHoursType] = useState('default');
   const [emailInput, setEmailInput] = useState('');
   const [currentEmailField, setCurrentEmailField] = useState(null);
+  
+  // States for Context Files UI
+  const [contextSearchTerm, setContextSearchTerm] = useState('');
+  const [fileToDelete, setFileToDelete] = useState(null);
 
   const { isOpen: isEmailModalOpen, onOpen: onEmailModalOpen, onClose: onEmailModalClose } = useDisclosure();
+  const { isOpen: isDeleteFileModalOpen, onOpen: onDeleteFileModalOpen, onClose: onDeleteFileModalClose } = useDisclosure();
   
+  // Refs for file inputs
+  const diagramInputRef = useRef(null);
+  const contextInputRef = useRef(null);
+
   const fetchData = useCallback(async () => {
     try {
      
@@ -101,18 +114,63 @@ const HostFormPage = () => {
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' || type === 'radio' ? checked : value }));
   };
 
-  const handleFileChange = async (e, fieldName) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const uploadForm = new FormData();
-    uploadForm.append('file', file);
-    try {
-        const res = await axios.post('/api/upload/context', uploadForm, { params: { test_mode: isTestMode } });
-        setFormData(prev => ({ ...prev, [fieldName]: res.data.path }));
-        toast({ title: "Upload Success", description: `${res.data.filename} uploaded.`, status: 'success' });
-    } catch (err) {
-        toast({ title: "Upload Failed", description: err.response?.data?.detail || err.message, status: 'error' });
-    }
+  const handleNetworkDiagramUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const uploadForm = new FormData();
+      uploadForm.append('file', file);
+      try {
+          const res = await axios.post('/api/upload/context', uploadForm, { params: { test_mode: isTestMode } });
+          setFormData(prev => ({ ...prev, networkdiagram: res.data.path }));
+          toast({ title: "Success", description: "Network diagram uploaded.", status: 'success' });
+      } catch (err) {
+          toast({ title: "Upload Failed", description: err.response?.data?.detail || err.message, status: 'error' });
+      }
+  };
+  
+  const handleContextFileUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const uploadForm = new FormData();
+      uploadForm.append('file', file);
+      try {
+          const res = await axios.post('/api/upload/context', uploadForm, { params: { test_mode: isTestMode } });
+          const newPath = `Bonus_context/${res.data.filename}`;
+          
+          setAvailableContextFiles(prev => [...prev, newPath]);
+          // Auto-select uploaded file
+          setFormData(prev => ({ ...prev, context_files: [...prev.context_files, newPath] }));
+          
+          toast({ title: "Success", description: "Context file uploaded.", status: 'success' });
+      } catch (err) {
+          toast({ title: "Upload Failed", description: err.response?.data?.detail || err.message, status: 'error' });
+      }
+  };
+  
+  const handleDeleteContextFileClick = (file) => {
+      setFileToDelete(file);
+      onDeleteFileModalOpen();
+  };
+  
+  const confirmDeleteFile = async () => {
+      if (!fileToDelete) return;
+      try {
+          const filename = fileToDelete.split('/').pop();
+          await axios.delete(`/api/context-files/${filename}`, { params: { test_mode: isTestMode } });
+          
+          setAvailableContextFiles(prev => prev.filter(f => f !== fileToDelete));
+          setFormData(prev => ({
+              ...prev,
+              context_files: prev.context_files.filter(f => f !== fileToDelete)
+          }));
+          
+          toast({ title: "Deleted", description: `File ${filename} deleted.`, status: "success" });
+      } catch (err) {
+          toast({ title: "Delete Failed", description: err.response?.data?.detail || err.message, status: "error" });
+      } finally {
+          onDeleteFileModalClose();
+          setFileToDelete(null);
+      }
   };
 
   const handleContextFileToggle = (filePath) => {
@@ -169,6 +227,10 @@ const HostFormPage = () => {
         setIsSaving(false);
     }
   };
+
+  const filteredContextFiles = availableContextFiles.filter(file => 
+      file.toLowerCase().includes(contextSearchTerm.toLowerCase())
+  );
 
   if (loading) return <Center h="80vh"><Spinner size="xl" /></Center>;
   if (error) return <Alert status="error"><AlertIcon />{error}</Alert>;
@@ -279,21 +341,93 @@ const HostFormPage = () => {
             </FormCard></GridItem>
 
             <GridItem colSpan={{ base: 1, lg: 2 }}><FormCard title="Bonus Context">
-                 <FormControl>
-                    <FormLabel fontSize="sm">Network Diagram</FormLabel>
-                    <Input type="file" onChange={(e) => handleFileChange(e, 'networkdiagram')} accept="image/png, image/jpeg, image/svg+xml" p={1} />
-                    {formData.networkdiagram && <Text fontSize="xs" color="gray.500" mt={1}>Current: {formData.networkdiagram}</Text>}
-                 </FormControl>
-                 <FormControl>
-                    <FormLabel fontSize="sm">Select Context Files</FormLabel>
-                    <VStack align="stretch" p={3} borderWidth={1} borderRadius="md" maxH="200px" overflowY="auto">
-                        {availableContextFiles.map(file => (
-                            <Switch key={file} isChecked={formData.context_files.includes(file)} onChange={() => handleContextFileToggle(file)}>
-                                {file.split('/').pop()}
-                            </Switch>
-                        ))}
-                    </VStack>
-                 </FormControl>
+                 <Grid templateColumns={{ base: '1fr', md: '1fr 2fr' }} gap={6}>
+                    {/* Network Diagram Section */}
+                    <FormControl>
+                        <FormLabel fontSize="sm">Network Diagram</FormLabel>
+                        <Box 
+                            borderWidth="2px" 
+                            borderStyle="dashed" 
+                            borderColor="gray.300" 
+                            borderRadius="md" 
+                            p={4} 
+                            textAlign="center" 
+                            cursor="pointer"
+                            _hover={{ borderColor: "blue.400", bg: hoverBg }}
+                            onClick={() => diagramInputRef.current.click()}
+                        >
+                             <input 
+                                type="file" 
+                                ref={diagramInputRef} 
+                                style={{ display: 'none' }} 
+                                accept="image/png, image/jpeg, image/svg+xml" 
+                                onChange={handleNetworkDiagramUpload} 
+                             />
+                             <VStack spacing={2}>
+                                <AttachmentIcon boxSize={6} color="gray.400" />
+                                <Text fontSize="sm" color="gray.500">
+                                    {formData.networkdiagram ? formData.networkdiagram.split('/').pop() : "Click to upload diagram"}
+                                </Text>
+                             </VStack>
+                        </Box>
+                         {formData.networkdiagram && (
+                            <Button size="xs" variant="ghost" colorScheme="red" mt={2} onClick={() => setFormData(p => ({...p, networkdiagram: ''}))}>
+                                Remove Diagram
+                            </Button>
+                         )}
+                    </FormControl>
+
+                    {/* Context Files Section */}
+                    <FormControl>
+                        <FormLabel fontSize="sm">Context Files</FormLabel>
+                        <HStack mb={2}>
+                            <InputGroup size="sm">
+                                <InputLeftElement pointerEvents="none"><SearchIcon color="gray.300" /></InputLeftElement>
+                                <Input 
+                                    placeholder="Search files..." 
+                                    value={contextSearchTerm} 
+                                    onChange={(e) => setContextSearchTerm(e.target.value)} 
+                                />
+                            </InputGroup>
+                             <input 
+                                type="file" 
+                                ref={contextInputRef} 
+                                style={{ display: 'none' }} 
+                                onChange={handleContextFileUpload} 
+                             />
+                            <IconButton 
+                                icon={<AddIcon />} 
+                                size="sm" 
+                                aria-label="Upload Context File" 
+                                onClick={() => contextInputRef.current.click()} 
+                            />
+                        </HStack>
+                        
+                        <VStack align="stretch" p={2} borderWidth={1} borderRadius="md" maxH="250px" overflowY="auto" spacing={0}>
+                            {filteredContextFiles.length > 0 ? filteredContextFiles.map(file => (
+                                <HStack key={file} justify="space-between" p={2} _hover={{ bg: hoverBg }} borderRadius="sm">
+                                    <Checkbox 
+                                        isChecked={formData.context_files.includes(file)} 
+                                        onChange={() => handleContextFileToggle(file)}
+                                        flex="1"
+                                    >
+                                        <Text fontSize="sm" isTruncated maxW="300px" title={file}>{file.split('/').pop()}</Text>
+                                    </Checkbox>
+                                    <IconButton 
+                                        icon={<DeleteIcon />} 
+                                        size="xs" 
+                                        variant="ghost" 
+                                        colorScheme="red" 
+                                        aria-label="Delete file"
+                                        onClick={() => handleDeleteContextFileClick(file)}
+                                    />
+                                </HStack>
+                            )) : (
+                                <Text fontSize="sm" color="gray.500" textAlign="center" py={2}>No files found.</Text>
+                            )}
+                        </VStack>
+                    </FormControl>
+                 </Grid>
             </FormCard></GridItem>
         </Grid>
         
@@ -302,6 +436,7 @@ const HostFormPage = () => {
         </Box>
       </VStack>
 
+      {/* Email Modal */}
       <Modal isOpen={isEmailModalOpen} onClose={onEmailModalClose} isCentered>
         <ModalOverlay />
         <ModalContent>
@@ -323,6 +458,23 @@ const HostFormPage = () => {
           </ModalBody>
           <ModalFooter>
             <Button onClick={onEmailModalClose}>Done</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      
+
+       <Modal isOpen={isDeleteFileModalOpen} onClose={onDeleteFileModalClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Confirm Delete File</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            Are you sure you want to delete <Text as="span" fontWeight="bold">{fileToDelete?.split('/').pop()}</Text>?
+            <Text fontSize="sm" color="red.500" mt={2}>This will remove the file from the server and affect all hosts using it.</Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onDeleteFileModalClose}>Cancel</Button>
+            <Button colorScheme="red" onClick={confirmDeleteFile}>Delete Permanently</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

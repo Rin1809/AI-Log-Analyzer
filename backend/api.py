@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 app = FastAPI(
     title="AI-log-analyzer API",
     description="API để quản lý và giám sát tool phân tích log.",
-    version="3.0.3", 
+    version="3.1.0", 
 )
 
 origins = ["http://localhost", "http://localhost:3000"]
@@ -297,6 +297,30 @@ async def upload_context_file(test_mode: bool = False, file: UploadFile = File(.
         file.file.close()
 
     return {"status": "success", "filename": safe_filename, "path": file_path}
+
+@app.delete("/api/context-files/{filename}", response_model=Dict[str, str])
+async def delete_context_file(filename: str, test_mode: bool = False):
+    sys_config = get_system_config_parser(test_mode)
+    context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
+    
+    if not context_dir:
+        raise HTTPException(status_code=400, detail="Context directory is not configured.")
+        
+    file_path = os.path.join(context_dir, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found.")
+    
+    # Security check to prevent path traversal deletion
+    if os.path.dirname(os.path.abspath(file_path)) != os.path.abspath(context_dir):
+         raise HTTPException(status_code=403, detail="Access denied.")
+
+    try:
+        os.remove(file_path)
+        logging.info(f"Da xoa file context: {file_path}")
+        return {"status": "success", "message": f"File {filename} deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not delete file: {e}")
 
 # --- REPORT ENDPOINTS ---
 @app.get("/api/reports", response_model=List[ReportInfo])

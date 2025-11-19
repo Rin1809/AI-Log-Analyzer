@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import {
@@ -32,8 +32,11 @@ import {
   ModalFooter,
   ModalBody,
   ModalCloseButton,
+  InputGroup,
+  InputLeftElement,
+  Input,
 } from '@chakra-ui/react';
-import { EditIcon, DeleteIcon, AddIcon } from '@chakra-ui/icons';
+import { EditIcon, DeleteIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
 
 const POLLING_INTERVAL = 15000;
 
@@ -68,6 +71,7 @@ const HostStatusPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [hostToDelete, setHostToDelete] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const toast = useToast();
   const { isOpen: isDeleteModalOpen, onOpen: onDeleteModalOpen, onClose: onDeleteModalClose } = useDisclosure();
 
@@ -125,6 +129,12 @@ const HostStatusPage = () => {
     }
   };
 
+  const filteredStatus = useMemo(() => {
+      return status.filter(host => 
+          host.hostname.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+  }, [status, searchTerm]);
+
   if (loading) {
     return <Center h="80vh"><Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" /></Center>;
   }
@@ -136,11 +146,32 @@ const HostStatusPage = () => {
   return (
     <VStack spacing={6} align="stretch">
       <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-        <Flex justify="space-between" align="center" mb={4}>
+        <Flex justify="space-between" align="center" mb={6} wrap="wrap" gap={4}>
           <Heading size="lg" fontWeight="normal">Host Status</Heading>
-          <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={() => navigate('/status/add')}>
-            Add Host
-          </Button>
+          
+          <HStack spacing={3} w={{ base: '100%', md: 'auto' }}>
+             <InputGroup maxW="300px">
+                <InputLeftElement pointerEvents="none">
+                    <SearchIcon color="gray.300" />
+                </InputLeftElement>
+                <Input 
+                    placeholder="Search host..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+             </InputGroup>
+             <Tooltip label="Add New Host" placement="top" hasArrow bg="gray.600" color="white">
+                <IconButton 
+                    icon={<AddIcon />} 
+                    colorScheme="blue" 
+                    variant="outline" 
+                    aria-label="Add Host"
+                    onClick={() => navigate('/status/add')}
+                    size="md"
+                    isRound
+                />
+             </Tooltip>
+          </HStack>
         </Flex>
         
         <Table variant="simple">
@@ -154,8 +185,8 @@ const HostStatusPage = () => {
             </Tr>
           </Thead>
           <Tbody>
-            {status.length > 0 ? (
-              status.map((fw) => (
+            {filteredStatus.length > 0 ? (
+              filteredStatus.map((fw) => (
                 <Tr key={fw.id}>
                   <Td fontWeight="medium">{fw.hostname}</Td>
                   <Td><StatusBadge isEnabled={fw.is_enabled} /></Td>
@@ -178,13 +209,12 @@ const HostStatusPage = () => {
                 </Tr>
               ))
             ) : (
-              <Tr><Td colSpan={5} textAlign="center">No hosts configured.</Td></Tr>
+              <Tr><Td colSpan={5} textAlign="center" py={4} color="gray.500">No hosts found.</Td></Tr>
             )}
           </Tbody>
         </Table>
       </Box>
 
-      {/* Delete Confirmation Modal */}
       <Modal isOpen={isDeleteModalOpen} onClose={onDeleteModalClose} isCentered>
         <ModalOverlay />
         <ModalContent>
