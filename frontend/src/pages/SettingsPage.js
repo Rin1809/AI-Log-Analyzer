@@ -170,7 +170,7 @@ const SettingsPage = () => {
 
   return (
     <VStack spacing={6} align="stretch">
-      <Heading size="lg">System Settings</Heading>
+      <Heading size="lg" fontWeight="normal">System Settings</Heading>
       
       {error && <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>}
 

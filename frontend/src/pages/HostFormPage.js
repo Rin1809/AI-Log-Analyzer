@@ -7,7 +7,7 @@ import {
   Switch, NumberInput, NumberInputField, NumberInputStepper, NumberIncrementStepper, NumberDecrementStepper,
   useColorModeValue, Flex, Checkbox, Tooltip, SimpleGrid,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
-  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement
+  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement, Badge
 } from '@chakra-ui/react';
 import { 
     ArrowBackIcon, AddIcon, ArrowUpIcon, ArrowDownIcon, 
@@ -251,7 +251,7 @@ const HostFormPage = () => {
             <Flex align="center" justify="space-between">
                 <HStack>
                     <IconButton icon={<ArrowBackIcon />} onClick={() => navigate('/status')} variant="ghost" aria-label="Back" />
-                    <Heading size="lg">{hostId ? `Edit ${basicInfo.syshostname}` : 'New Host'}</Heading>
+                    <Heading size="lg" fontWeight="normal">{hostId ? `Edit ${basicInfo.syshostname}` : 'New Host'}</Heading>
                 </HStack>
                 {/* Save Button */}
                 <Button 
@@ -262,6 +262,7 @@ const HostFormPage = () => {
                     color={saveButtonColor} 
                     _hover={{ bg: saveButtonHoverBg }}
                     size="md"
+                    fontWeight="normal"
                 >
                     Save Configuration
                 </Button>
@@ -271,7 +272,7 @@ const HostFormPage = () => {
                 {/* Column 1: Basic Info */}
                 <VStack spacing={6} align="stretch">
                     <Card bg={bg}>
-                        <CardHeader><Heading size="md">Basic Information</Heading></CardHeader>
+                        <CardHeader><Heading size="md" fontWeight="normal">Basic Information</Heading></CardHeader>
                         <CardBody>
                             <VStack spacing={4}>
                                 <FormControl isRequired><FormLabel>Hostname</FormLabel>
@@ -298,7 +299,7 @@ const HostFormPage = () => {
                     </Card>
 
                     <Card bg={bg}>
-                        <CardHeader><Heading size="md">Resources & Context</Heading></CardHeader>
+                        <CardHeader><Heading size="md" fontWeight="normal">Resources & Context</Heading></CardHeader>
                         <CardBody>
                             <VStack spacing={4} align="stretch">
                                 <FormControl>
@@ -322,7 +323,7 @@ const HostFormPage = () => {
                                             <Box position="relative">
                                                 <HStack justify="center" spacing={2}>
                                                     <AttachmentIcon color="green.500" />
-                                                    <Text fontSize="sm" fontWeight="bold" isTruncated>{basicInfo.networkdiagram.split('/').pop()}</Text>
+                                                    <Text fontSize="sm" fontWeight="normal" isTruncated>{basicInfo.networkdiagram.split('/').pop()}</Text>
                                                 </HStack>
                                                 {/* Trash Can -> Minus Icon, Ghost Style */}
                                                 <IconButton 
@@ -381,8 +382,8 @@ const HostFormPage = () => {
                     <Card bg={bg} h="full">
                         <CardHeader>
                             <Flex justify="space-between" align="center">
-                                <Heading size="md">Analysis Pipeline</Heading>
-                                <Button leftIcon={<AddIcon />} size="sm" onClick={addStage} bg={btnAddBg}>Add Stage</Button>
+                                <Heading size="md" fontWeight="normal">Analysis Pipeline</Heading>
+                                <Button leftIcon={<AddIcon />} size="sm" onClick={addStage} bg={btnAddBg} fontWeight="normal">Add Stage</Button>
                             </Flex>
                         </CardHeader>
                         <CardBody>
@@ -391,11 +392,20 @@ const HostFormPage = () => {
                                     <Box key={idx} borderWidth="1px" borderRadius="md" p={3} position="relative" _hover={{ borderColor: "blue.300", boxShadow: "sm" }}>
                                         <Flex justify="space-between" mb={2} align="center">
                                             <HStack>
-                                                {/* Labels */}
-                                                <Text fontWeight="bold" fontSize="sm" color={idx === 0 ? "blue.500" : "purple.500"}>
+                                                {/* Labels -> Badge style */}
+                                                <Badge 
+                                                    colorScheme={idx === 0 ? "blue" : "purple"} 
+                                                    variant="subtle" 
+                                                    fontSize="0.8em"
+                                                    fontWeight="normal"
+                                                    px={2} 
+                                                    py={1}
+                                                    borderRadius="full"
+                                                >
                                                     {idx === 0 ? "#0 Source" : `#${idx} Aggregation`}
-                                                </Text>
-                                                <Input size="sm" value={stage.name} onChange={e=>updateStage(idx, 'name', e.target.value)} w="180px" fontWeight="bold" variant="unstyled" />
+                                                </Badge>
+                                                
+                                                <Input size="sm" value={stage.name} onChange={e=>updateStage(idx, 'name', e.target.value)} w="180px" fontWeight="normal" variant="unstyled" />
                                             </HStack>
                                             <HStack spacing={1}>
                                                 <IconButton size="xs" icon={<ArrowUpIcon />} isDisabled={idx===0} onClick={()=>moveStage(idx, -1)} variant="ghost"/>
@@ -437,7 +447,7 @@ const HostFormPage = () => {
                                             
                                             <FormControl gridColumn={idx > 0 ? "span 1" : "span 2"}>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">Notifications</FormLabel>
-                                                <Button size="xs" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
+                                                <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
                                                     Manage Emails ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
                                                 </Button>
                                             </FormControl>
