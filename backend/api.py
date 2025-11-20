@@ -28,7 +28,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.5.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.6.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -210,18 +210,36 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
     config.read(config_path, encoding='utf-8')
-    if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     
+    if not config.has_section(host_id): 
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    new_host_id = get_host_id(host_config.syshostname)
+    
+    if new_host_id != host_id and config.has_section(new_host_id):
+        raise HTTPException(status_code=409, detail=f"Host ID '{new_host_id}' derived from new hostname already exists.")
+
+    sys_settings = get_system_config_parser(test_mode)
+    base_report_dir = sys_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
+    
+    current_report_dir = os.path.join(base_report_dir, host_id)
+    new_report_dir = os.path.join(base_report_dir, new_host_id)
+
+    if new_host_id != host_id:
+        if os.path.exists(current_report_dir):
+            try:
+                os.rename(current_report_dir, new_report_dir)
+                logging.info(f"Renamed host report dir: {host_id} -> {new_host_id}")
+            except Exception as e:
+                logging.error(f"Failed to rename host dir: {e}")
+        current_report_dir = new_report_dir 
+
     try:
         old_pipeline_json = config.get(host_id, 'pipeline_config', fallback='[]')
         old_pipeline = json.loads(old_pipeline_json)
         new_pipeline = host_config.pipeline
         
-        sys_settings = get_system_config_parser(test_mode)
-        base_report_dir = sys_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
-        host_report_dir = os.path.join(base_report_dir, host_id)
-
-        if os.path.exists(host_report_dir):
+        if os.path.exists(current_report_dir):
             for i, new_stage in enumerate(new_pipeline):
                 if i < len(old_pipeline):
                     old_name = old_pipeline[i].get('name')
@@ -232,32 +250,33 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                         new_slug = slugify(new_name)
                         
                         if old_slug != new_slug:
-                            old_path = os.path.join(host_report_dir, old_slug)
-                            new_path = os.path.join(host_report_dir, new_slug)
+                            old_path = os.path.join(current_report_dir, old_slug)
+                            new_path = os.path.join(current_report_dir, new_slug)
                             
                             if os.path.exists(old_path):
                                 try:
                                     os.rename(old_path, new_path)
-                                    logging.info(f"Renamed report folder: {old_slug} -> {new_slug}")
+                                    logging.info(f"Renamed stage folder: {old_slug} -> {new_slug}")
                                 except Exception as e:
-                                    logging.error(f"Failed to rename folder {old_slug} to {new_slug}: {e}")
+                                    logging.error(f"Failed to rename stage folder: {e}")
     except Exception as e:
         logging.error(f"Error during directory rename check: {e}")
 
     old_enabled = config.get(host_id, 'enabled', fallback='True')
-    config.remove_section(host_id)
-    config.add_section(host_id)
-    config.set(host_id, 'enabled', old_enabled)
     
+    config.remove_section(host_id)
+    config.add_section(new_host_id)
+    
+    config.set(new_host_id, 'enabled', old_enabled)
     for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
-        config.set(host_id, key, str(value))
+        config.set(new_host_id, key, str(value))
     for i, file_path in enumerate(host_config.context_files, 1):
-        config.set(host_id, f'context_file_{i}', file_path)
+        config.set(new_host_id, f'context_file_{i}', file_path)
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
-    config.set(host_id, 'pipeline_config', pipeline_json)
+    config.set(new_host_id, 'pipeline_config', pipeline_json)
     
     with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
-    return {"status": "success"}
+    return {"status": "success", "new_id": new_host_id}
 
 @app.delete("/api/hosts/{host_id}", response_model=Dict)
 async def delete_host(host_id: str, test_mode: bool = False):

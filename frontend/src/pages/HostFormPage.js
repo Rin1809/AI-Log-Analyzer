@@ -238,7 +238,7 @@ const HostFormPage = () => {
             toast({ title: "Saved Successfully", status: "success" });
             navigate('/status');
         } catch (e) {
-            toast({ title: "Save Error", description: e.message, status: "error" });
+            toast({ title: "Save Error", description: e.response?.data?.detail || e.message, status: "error" });
         } finally { setIsSaving(false); }
     };
     
@@ -275,7 +275,7 @@ const HostFormPage = () => {
                         <CardBody>
                             <VStack spacing={4}>
                                 <FormControl isRequired><FormLabel>Hostname</FormLabel>
-                                    <Input value={basicInfo.syshostname} onChange={e=>setBasicInfo({...basicInfo, syshostname: e.target.value})} isDisabled={!!hostId}/>
+                                    <Input value={basicInfo.syshostname} onChange={e=>setBasicInfo({...basicInfo, syshostname: e.target.value})} />
                                 </FormControl>
                                 <FormControl><FormLabel>Log File Path</FormLabel>
                                     <Input value={basicInfo.logfile} onChange={e=>setBasicInfo({...basicInfo, logfile: e.target.value})}/>
