@@ -11,7 +11,19 @@ import {
   VStack,
   Center,
   Heading,
+  Flex,
+  InputGroup,
+  InputLeftElement,
+  Input,
+  FormControl,
+  FormLabel,
+  Button,
+  Icon,
+  HStack,
+  Text,
+  Spacer
 } from '@chakra-ui/react';
+import { SearchIcon, RepeatIcon, TimeIcon } from '@chakra-ui/icons';
 import PieChartDisplay from '../components/dashboard/PieChartDisplay';
 import LineChartDisplay from '../components/dashboard/LineChartDisplay';
 import InfoCard from '../components/dashboard/InfoCard';
@@ -20,15 +32,35 @@ const POLLING_INTERVAL = 30000;
 
 const MainDashboard = () => {
     const { isTestMode } = useOutletContext();
+    
+    // --- Data State ---
     const [statusData, setStatusData] = useState([]);
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    
+    // --- Global Filter State ---
+    const [filters, setFilters] = useState({
+        hostname: '',
+        startDate: '',
+        endDate: ''
+    });
+
+    // --- Chart Specific Filter State ---
+    const [chartFilter, setChartFilter] = useState({
+        startDateTime: '',
+        endDateTime: ''
+    });
+
     const isInitialLoad = useRef(true);
 
+    // --- Styles ---
     const cardBg = useColorModeValue('gray.50', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
+    const filterBg = useColorModeValue('white', 'gray.800');
+    const inputBg = useColorModeValue('white', 'gray.700');
 
+    // --- Fetch Data ---
     const fetchData = useCallback(async (testMode) => {
         if (isInitialLoad.current) setLoading(true);
         setError('');
@@ -61,58 +93,130 @@ const MainDashboard = () => {
         return () => clearInterval(intervalId);
     }, [fetchData, isTestMode]);
 
-    
+
+    // --- Global Filtering Logic ---
+
+    const filteredStatus = useMemo(() => {
+        if (!filters.hostname) return statusData;
+        return statusData.filter(s => 
+            s.hostname.toLowerCase().includes(filters.hostname.toLowerCase())
+        );
+    }, [statusData, filters.hostname]);
+
+    const filteredReports = useMemo(() => {
+        return reports.filter(r => {
+            if (filters.hostname && !r.hostname.toLowerCase().includes(filters.hostname.toLowerCase())) {
+                return false;
+            }
+            if (filters.startDate || filters.endDate) {
+                const rDate = new Date(r.generated_time);
+                const checkDate = new Date(rDate.getFullYear(), rDate.getMonth(), rDate.getDate());
+
+                if (filters.startDate) {
+                    const start = new Date(filters.startDate);
+                    const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+                    if (checkDate < startDateOnly) return false;
+                }
+                if (filters.endDate) {
+                    const end = new Date(filters.endDate);
+                    const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+                    if (checkDate > endDateOnly) return false;
+                }
+            }
+            return true;
+        });
+    }, [reports, filters]);
+
+
+    // --- Chart Data Calculation ---
+
     const hostStatusData = useMemo(() => {
-        if (!statusData || statusData.length === 0) return [];
-        const active = statusData.filter(s => s.is_enabled).length;
-        const inactive = statusData.length - active;
+        if (!filteredStatus || filteredStatus.length === 0) return [];
+        const active = filteredStatus.filter(s => s.is_enabled).length;
+        const inactive = filteredStatus.length - active;
         if (active === 0 && inactive === 0) return [];
         return [{ name: 'Active', value: active }, { name: 'Inactive', value: inactive }];
-    }, [statusData]);
+    }, [filteredStatus]);
 
     const reportTypeData = useMemo(() => {
-        if (!reports || reports.length === 0) return [];
-        const types = reports.reduce((acc, report) => {
+        if (!filteredReports || filteredReports.length === 0) return [];
+        const types = filteredReports.reduce((acc, report) => {
             let typeName = report.type.replace(/_/g, ' ');
             typeName = typeName.charAt(0).toUpperCase() + typeName.slice(1);
             acc[typeName] = (acc[typeName] || 0) + 1;
             return acc;
         }, {});
         return Object.entries(types).map(([name, value]) => ({ name, value }));
-    }, [reports]);
+    }, [filteredReports]);
 
     const reportsByHostData = useMemo(() => {
-        if (!reports || reports.length === 0) return [];
-        const hosts = reports.reduce((acc, report) => {
+        if (!filteredReports || filteredReports.length === 0) return [];
+        const hosts = filteredReports.reduce((acc, report) => {
             acc[report.hostname] = (acc[report.hostname] || 0) + 1;
             return acc;
         }, {});
         return Object.entries(hosts).map(([name, value]) => ({ name, value }));
-    }, [reports]);
+    }, [filteredReports]);
+
+
+
 
     const lineChartData = useMemo(() => {
-        if (!statusData || statusData.length === 0) return { data: [], keys: [] };
-        
-        const activeHostnames = statusData.filter(s => s.is_enabled).map(s => s.hostname);
-        
-        const logAnalysisReports = reports.filter(r => 
-            r.summary_stats && 
-            (r.summary_stats.raw_log_count !== undefined || r.summary_stats.total_blocked_events !== undefined)
-        );
-        
-        if (activeHostnames.length === 0 || logAnalysisReports.length === 0) return { data: [], keys: [] };
+    
+        if (!filteredStatus || filteredStatus.length === 0) return { data: [], keys: [] };
+        const activeHostnames = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
 
+        let chartReports = reports.filter(r => {
+            if (!activeHostnames.includes(r.hostname)) return false;
+            
+     
+            if (!r.summary_stats || 
+                (r.summary_stats.raw_log_count === undefined && r.summary_stats.total_blocked_events === undefined)) {
+                return false;
+            }
+
+      
+            if (chartFilter.startDateTime || chartFilter.endDateTime) {
+                const rTime = new Date(r.generated_time).getTime();
+                if (chartFilter.startDateTime) {
+                    const startTime = new Date(chartFilter.startDateTime).getTime();
+                    if (rTime < startTime) return false;
+                }
+                if (chartFilter.endDateTime) {
+                    const endTime = new Date(chartFilter.endDateTime).getTime();
+                    if (rTime > endTime) return false;
+                }
+            }
+            return true;
+        });
+        
+    
+        const timestampSet = new Set();
         const reportMap = new Map();
-        logAnalysisReports.forEach(r => {
+
+        chartReports.forEach(r => {
             const timestamp = new Date(r.generated_time).getTime();
+            timestampSet.add(timestamp);
+            
             if (!reportMap.has(timestamp)) {
                 reportMap.set(timestamp, []);
             }
             reportMap.get(timestamp).push(r);
         });
 
-        const allTimestamps = [...new Set(logAnalysisReports.map(r => new Date(r.generated_time).getTime()))].sort((a, b) => a - b);
-        
+
+        if (chartFilter.startDateTime) {
+            timestampSet.add(new Date(chartFilter.startDateTime).getTime());
+        }
+        if (chartFilter.endDateTime) {
+            timestampSet.add(new Date(chartFilter.endDateTime).getTime());
+        }
+
+ 
+        const allTimestamps = Array.from(timestampSet).sort((a, b) => a - b);
+
+        if (allTimestamps.length === 0 && activeHostnames.length > 0) return { data: [], keys: [] };
+
         const lastValues = activeHostnames.reduce((acc, host) => {
             acc[host] = 0;
             return acc;
@@ -120,23 +224,42 @@ const MainDashboard = () => {
 
         const finalData = allTimestamps.map(ts => {
             const reportsAtTime = reportMap.get(ts) || [];
-            reportsAtTime.forEach(report => {
-                let val = 0;
-                if (report.summary_stats.raw_log_count !== undefined) val = parseInt(report.summary_stats.raw_log_count, 10);
-                else if (report.summary_stats.total_blocked_events !== "N/A") val = parseInt(report.summary_stats.total_blocked_events, 10);
-                lastValues[report.hostname] = val;
-            });
+            
+     
+            if (reportsAtTime.length > 0) {
+                reportsAtTime.forEach(report => {
+                    let val = 0;
+                    if (report.summary_stats.raw_log_count !== undefined) val = parseInt(report.summary_stats.raw_log_count, 10);
+                    else if (report.summary_stats.total_blocked_events !== "N/A") val = parseInt(report.summary_stats.total_blocked_events, 10);
+                    lastValues[report.hostname] = val;
+                });
+            } else {
+
+                 activeHostnames.forEach(host => {
+
+                    lastValues[host] = 0; 
+                });
+            }
             
             const formattedTime = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
             return { time: formattedTime, ...lastValues };
         });
 
         return { data: finalData, keys: activeHostnames };
-    }, [reports, statusData]);
+    }, [reports, filteredStatus, chartFilter]);
 
-    // --- Render logic ---
+
+    // --- Handlers ---
+    const handleResetGlobalFilters = () => {
+        setFilters({ hostname: '', startDate: '', endDate: '' });
+    };
+
+    const handleResetChartFilter = () => {
+        setChartFilter({ startDateTime: '', endDateTime: '' });
+    };
+
+    // --- Render ---
     if (loading) {
-        // style thanh loading
         return <Center h="80vh"><Spinner size="xl" /></Center>;
     }
 
@@ -146,6 +269,34 @@ const MainDashboard = () => {
 
     return (
         <VStack spacing={6} align="stretch">
+            <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={filterBg} shadow="sm">
+                <Flex direction={{ base: 'column', lg: 'row' }} gap={4} align={{ base: 'stretch', lg: 'flex-end' }}>
+                    <FormControl flex="1">
+                        <FormLabel fontSize="sm" fontWeight="normal" color="gray.500">Global Filter (Host & Broad Date)</FormLabel>
+                        <InputGroup>
+                            <InputLeftElement pointerEvents="none"><SearchIcon color="gray.400" /></InputLeftElement>
+                            <Input 
+                                placeholder="Search Hostname..." 
+                                value={filters.hostname}
+                                onChange={(e) => setFilters(prev => ({ ...prev, hostname: e.target.value }))}
+                                bg={inputBg}
+                            />
+                        </InputGroup>
+                    </FormControl>
+                    <FormControl w={{ base: '100%', lg: '200px' }}>
+                         <FormLabel fontSize="sm" color="gray.500">From Date</FormLabel>
+                         <Input type="date" value={filters.startDate} onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))} bg={inputBg} />
+                    </FormControl>
+                    <FormControl w={{ base: '100%', lg: '200px' }}>
+                         <FormLabel fontSize="sm" color="gray.500">To Date</FormLabel>
+                         <Input type="date" value={filters.endDate} onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))} bg={inputBg} />
+                    </FormControl>
+                    <Button leftIcon={<Icon as={RepeatIcon} />} onClick={handleResetGlobalFilters} colorScheme="gray" variant="outline" fontWeight="normal">
+                        Reset
+                    </Button>
+                </Flex>
+            </Box>
+
             <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
                 <VStack align="stretch" spacing={3}>
                     <Heading size="md" fontWeight="normal" textAlign="left">Host Status</Heading>
@@ -162,12 +313,41 @@ const MainDashboard = () => {
             </SimpleGrid>
             
             <VStack align="stretch" spacing={3} mt={4}>
-                <Heading size="md" fontWeight="normal" textAlign="left">Log Volume Analysis</Heading>
-                <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="400px">
+                <Flex align="center" wrap="wrap" gap={4}>
+                    <Heading size="md" fontWeight="normal">Log Volume Analysis</Heading>
+                    <Spacer />
+                    
+                    <HStack spacing={2} bg={cardBg} p={2} borderRadius="md" borderWidth="1px" borderColor={borderColor}>
+                        <Icon as={TimeIcon} color="gray.500" />
+                        <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">Chart Filter:</Text>
+                        
+                        <Input 
+                            type="datetime-local" 
+                            size="sm" 
+                            w="auto" 
+                            value={chartFilter.startDateTime}
+                            onChange={(e) => setChartFilter(prev => ({ ...prev, startDateTime: e.target.value }))}
+                            bg={inputBg}
+                        />
+                        <Text fontSize="sm">-</Text>
+                        <Input 
+                            type="datetime-local" 
+                            size="sm" 
+                            w="auto" 
+                            value={chartFilter.endDateTime}
+                            onChange={(e) => setChartFilter(prev => ({ ...prev, endDateTime: e.target.value }))}
+                            bg={inputBg}
+                        />
+                        <Button size="sm" variant="ghost" onClick={handleResetChartFilter} title="Reset Chart Time">
+                            <Icon as={RepeatIcon} />
+                        </Button>
+                    </HStack>
+                </Flex>
+
+                <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={cardBg} h="450px">
                     <LineChartDisplay data={lineChartData.data} keys={lineChartData.keys} />
                 </Box>
             </VStack>
-
         </VStack>
     );
 };
