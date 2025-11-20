@@ -280,7 +280,9 @@ const HostFormPage = () => {
                                 <FormControl><FormLabel>Log File Path</FormLabel>
                                     <Input value={basicInfo.logfile} onChange={e=>setBasicInfo({...basicInfo, logfile: e.target.value})}/>
                                 </FormControl>
-                                <HStack>
+                                
+                            
+                                <SimpleGrid columns={2} spacing={4} w="full">
                                     <FormControl><FormLabel>Timezone</FormLabel>
                                         <Input value={basicInfo.timezone} onChange={e=>setBasicInfo({...basicInfo, timezone: e.target.value})}/>
                                     </FormControl>
@@ -289,7 +291,8 @@ const HostFormPage = () => {
                                             <NumberInputField /><NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
                                         </NumberInput>
                                     </FormControl>
-                                </HStack>
+                                </SimpleGrid>
+
                                 <FormControl isRequired><FormLabel>Gemini API Key</FormLabel>
                                     <Input type="password" value={basicInfo.geminiapikey} onChange={e=>setBasicInfo({...basicInfo, geminiapikey: e.target.value})}/>
                                 </FormControl>

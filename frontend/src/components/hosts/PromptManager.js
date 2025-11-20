@@ -29,7 +29,7 @@ import {
     useColorModeValue,
     Flex,
     Divider,
-    Icon
+    Icon,
 } from '@chakra-ui/react';
 import { 
     AddIcon, EditIcon, DeleteIcon, SettingsIcon, 
@@ -174,7 +174,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                 bg={bg}
                 transition="all 0.2s"
                 _hover={{ borderColor: hoverBorderColor, boxShadow: 'sm' }}
-                h="32px" // Fixed height to match inputs
+                h="32px" 
             >
                 {/* Dropdown Section */}
                 <Menu matchWidth>

@@ -16,7 +16,6 @@ from typing import List, Dict, Any, Optional
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules import state_manager
-# Import slugify de dong bo logic ten thu muc
 from modules.report_generator import slugify
 
 # --- config ---
@@ -45,8 +44,8 @@ def get_system_config_parser(test_mode: bool = False) -> configparser.ConfigPars
     config = configparser.ConfigParser(interpolation=None, allow_no_value=True)
     if not os.path.exists(config_path):
         config.add_section('System')
-        with open(config_path, 'w') as f: config.write(f)
-    config.read(config_path)
+        with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
+    config.read(config_path, encoding='utf-8')
     return config
 
 # --- Pydantic Models ---
@@ -116,8 +115,16 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     config_dict = dict(config.items(section))
     
     standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
-    context_keys = [key for key in config.options(section) if key not in standard_keys and not key.startswith('context_file_')]
-    config_dict['context_files'] = [config.get(section, key) for key in context_keys]
+    
+    other_context = [config.get(section, key) for key in config.options(section) 
+                     if key not in standard_keys and not key.startswith('context_file_')]
+    
+    explicit_context = []
+    for key in config.options(section):
+        if key.startswith('context_file_'):
+             explicit_context.append(config.get(section, key))
+             
+    config_dict['context_files'] = other_context + explicit_context
 
     pipeline_json = config.get(section, 'pipeline_config', fallback='[]')
     try:
@@ -138,7 +145,7 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
 async def get_host_status(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
-        config.read(get_active_config_file(test_mode))
+        config.read(get_active_config_file(test_mode), encoding='utf-8')
         host_sections = [s for s in config.sections() if s.startswith(('Firewall_', 'Host_'))]
         status_list = []
         for section in host_sections:
@@ -162,18 +169,18 @@ async def get_host_status(test_mode: bool = False):
 async def toggle_host_status(host_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
-    config.read(config_path)
+    config.read(config_path, encoding='utf-8')
     if host_id not in config: raise HTTPException(status_code=404, detail="ID not found")
     
     curr = config.getboolean(host_id, 'enabled', fallback=True)
     config.set(host_id, 'enabled', str(not curr))
-    with open(config_path, 'w') as f: config.write(f)
+    with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
     return {"status": "toggled"}
 
 @app.get("/api/hosts/{host_id}", response_model=Dict)
 async def get_host_details(host_id: str, test_mode: bool = False):
     config = configparser.ConfigParser(interpolation=None)
-    config.read(get_active_config_file(test_mode))
+    config.read(get_active_config_file(test_mode), encoding='utf-8')
     if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     return config_to_dict(config, host_id)
 
@@ -182,7 +189,7 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
     host_id = get_host_id(host_config.syshostname)
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
-    config.read(config_path)
+    config.read(config_path, encoding='utf-8')
     if config.has_section(host_id): raise HTTPException(status_code=409, detail="Host exists")
     
     config.add_section(host_id)
@@ -193,14 +200,16 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
     config.set(host_id, 'pipeline_config', pipeline_json)
     config.set(host_id, 'enabled', 'True')
-    with open(config_path, 'w') as f: config.write(f)
+    
+   
+    with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
     return {"status": "success"}
 
 @app.put("/api/hosts/{host_id}", response_model=Dict)
 async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
-    config.read(config_path)
+    config.read(config_path, encoding='utf-8')
     if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     
     try:
@@ -246,25 +255,25 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
         config.set(host_id, f'context_file_{i}', file_path)
     pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
     config.set(host_id, 'pipeline_config', pipeline_json)
-        
-    with open(config_path, 'w') as f: config.write(f)
+    
+    with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
     return {"status": "success"}
 
 @app.delete("/api/hosts/{host_id}", response_model=Dict)
 async def delete_host(host_id: str, test_mode: bool = False):
     config_path = get_active_config_file(test_mode)
     config = configparser.ConfigParser(interpolation=None)
-    config.read(config_path)
+    config.read(config_path, encoding='utf-8')
     if not config.has_section(host_id): raise HTTPException(status_code=404)
     config.remove_section(host_id)
-    with open(config_path, 'w') as f: config.write(f)
+    with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
     return {"status": "deleted"}
 
 @app.get("/api/gemini-models", response_model=Dict[str, str])
 async def get_gemini_models():
     if not os.path.exists(MODEL_LIST_FILE): return {}
     config = configparser.ConfigParser()
-    config.read(MODEL_LIST_FILE)
+    config.read(MODEL_LIST_FILE, encoding='utf-8')
     if 'GeminiModels' not in config: return {}
     return dict(config.items('GeminiModels'))
 
@@ -358,7 +367,7 @@ async def delete_prompt(filename: str, test_mode: bool = False):
 async def get_all_reports(test_mode: bool = False):
     try:
         config = configparser.ConfigParser(interpolation=None)
-        config.read(get_active_config_file(test_mode))
+        config.read(get_active_config_file(test_mode), encoding='utf-8')
         system_settings = get_system_config_parser(test_mode)
         default_report_dir = 'test_reports' if test_mode else 'reports'
         report_dir = system_settings.get('System', 'report_directory', fallback=default_report_dir)
@@ -527,7 +536,8 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
         conf[sec]['sender_email'] = prof.sender_email
         conf[sec]['sender_password'] = prof.sender_password
         
-    with open(path, 'w') as f: conf.write(f)
+   
+    with open(path, 'w', encoding='utf-8') as f: conf.write(f)
     return {"status": "saved"}
 
 if __name__ == "__main__":
