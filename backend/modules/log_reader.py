@@ -1,95 +1,134 @@
-
 import logging
 import pytz
+import os
 from datetime import datetime, timedelta
 from modules import state_manager
 
-# // gioi han so dong log doc mot lan de tranh tran RAM
+# // Gioi han so dong log xu ly mot lan
 MAX_LOG_LINES_PER_RUN = 10000 
 
+def try_parse_timestamp_flexible(line, current_year, tz):
+
+    line = line.strip()
+    if not line: return None
+
+
+    if len(line) >= 15:
+        try:
+            if line[3] == ' ':
+                date_part = line[:15]
+                if date_part[4] == ' ': 
+                    date_part = date_part[:4] + '0' + date_part[5:]
+                
+                dt_naive = datetime.strptime(f"{current_year} {date_part}", "%Y %b %d %H:%M:%S")
+                return tz.localize(dt_naive)
+        except ValueError:
+            pass
+
+
+    if len(line) >= 19:
+        try:
+            date_part = line[:19].replace('T', ' ')
+            if date_part[0] == '2' and date_part[1] == '0':
+                dt_naive = datetime.strptime(date_part, "%Y-%m-%d %H:%M:%S")
+                return tz.localize(dt_naive)
+        except ValueError:
+            pass
+
+    return None
+
 def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=False):
-    """
-    Doc cac dong log moi tu mot file log cu the.
-    QUAN TRONG: Ham nay KHONG luu state. No tra ve timestamp moi nhat de caller quyet dinh luu.
-    Returns: (content, start_time, end_time, log_count, new_latest_timestamp)
-    """
+
     logging.info(f"[{host_id}] Bat dau doc log tu '{file_path}'.")
     try:
         tz = pytz.timezone(timezone_str)
-        end_time = datetime.now(tz) # day la thoi diem quet hien tai
+        end_time = datetime.now(tz) 
+        current_year = end_time.year
 
         if test_mode:
-            logging.info(f"[{host_id}] TEST MODE: Doc toan bo file log '{file_path}'.")
+            logging.info(f"[{host_id}] TEST MODE: Doc toan bo file log.")
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 all_entries = f.readlines()
-            
-            # // gia lap thoi gian cho test mode
-            start_time = end_time - timedelta(days=30)
+            start_time = end_time - timedelta(days=30) 
             
             if len(all_entries) > MAX_LOG_LINES_PER_RUN:
-                 all_entries = all_entries[-MAX_LOG_LINES_PER_RUN:]
-            
-            log_count = len(all_entries)
-            logging.info(f"[{host_id}] Tim thay {log_count} dong log (Test Mode).")
-            # // Test mode thi tra ve luon end_time lam new timestamp
-            return ("".join(all_entries), start_time, end_time, log_count, end_time)
+                 all_entries = all_entries[-MAX_LOG_LINES_PER_RUN:] 
+            return ("".join(all_entries), start_time, end_time, len(all_entries), end_time)
 
-        # // PRODUCTION MODE
+        # // PRODUCTION MODE LOGIC
         last_run_time = state_manager.get_last_run_timestamp(host_id, test_mode)
 
         if last_run_time:
             start_time = last_run_time.astimezone(tz)
-            logging.info(f"[{host_id}] Doc log ke tu lan chay cuoi: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logging.info(f"[{host_id}] Doc log ke tu: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
             start_time = end_time - timedelta(hours=hours)
-            logging.info(f"[{host_id}] Lan chay dau tien. Doc log trong vong {hours} gio qua.")
+            logging.info(f"[{host_id}] Lan chay dau tien. Doc log {hours}h qua.")
 
         new_entries = []
-        # // khoi tao mac dinh neu khong co log nao moi thi pointer van tien len hien tai
-        latest_log_time = start_time 
-        current_year = end_time.year
         
+
+        last_valid_timestamp = start_time
+        
+        try:
+            file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path), tz=tz)
+            if file_mtime > start_time:
+                fallback_timestamp = file_mtime
+            else:
+                fallback_timestamp = end_time
+        except:
+            fallback_timestamp = end_time
+
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
-                try:
-                    # // format log pfsense: "Mmm dd hh:mm:ss"
-                    line_date_str = line[:6] + line[7:15] if line[6] != ' ' else line[:15]
-                    
-                    log_time_str = line_date_str
-                    log_datetime_naive = datetime.strptime(f"{current_year} {log_time_str}", "%Y %b %d %H:%M:%S")
-                    log_datetime_aware = tz.localize(log_datetime_naive)
-                    
-                    # // xu ly truong hop qua nam moi
-                    if log_datetime_aware > end_time:
-                        log_datetime_aware = log_datetime_aware.replace(year=current_year - 1)
-                        
-                    if log_datetime_aware > start_time:
-                        new_entries.append(line)
-                        # // cap nhat con tro thoi gian neu tim thay log moi hon
-                        if log_datetime_aware > latest_log_time:
-                            latest_log_time = log_datetime_aware
-                except ValueError:
-                    continue
+                parsed_time = try_parse_timestamp_flexible(line, current_year, tz)
+                
+                if parsed_time:
 
-        # // Safety Check: chong tran bo nho
-        if len(new_entries) > MAX_LOG_LINES_PER_RUN:
-            logging.warning(f"[{host_id}] Log volume qua lon ({len(new_entries)}). Chi lay {MAX_LOG_LINES_PER_RUN} dong cuoi cung.")
-            new_entries = new_entries[-MAX_LOG_LINES_PER_RUN:]
-            new_entries.insert(0, f"!!! WARNING: So luong log vuot qua gioi han. Chi phan tich {MAX_LOG_LINES_PER_RUN} dong moi nhat. !!!\n")
+                    if parsed_time > end_time + timedelta(days=1):
+                         parsed_time = parsed_time.replace(year=current_year - 1)
+                    
+                    current_log_time = parsed_time
+                    last_valid_timestamp = parsed_time
+                else:
 
-        # // Chu y: o day khong save state nua. Viec do la cua main.py sau khi confirm success.
+                    current_log_time = last_valid_timestamp if last_valid_timestamp > start_time else fallback_timestamp
+
+                # // So sanh voi moc thoi gian lan chay truoc
+                if current_log_time > start_time:
+                    # // Luu tuple (timestamp, line) de sort va loc sau
+                    new_entries.append((current_log_time, line))
+
+ 
+        new_entries.sort(key=lambda x: x[0])
+
+        total_found = len(new_entries)
+        if total_found > MAX_LOG_LINES_PER_RUN:
+            logging.warning(f"[{host_id}] Log volume qua lon ({total_found}). Chi xu ly {MAX_LOG_LINES_PER_RUN} dong DAU TIEN.")
+            new_entries = new_entries[:MAX_LOG_LINES_PER_RUN]
+            
+            # // Canh bao AI
+            final_lines = [x[1] for x in new_entries]
+            final_lines.append(f"\n!!! WARNING: Con {total_found - MAX_LOG_LINES_PER_RUN} dong log nua chua xu ly. Se xu ly lan sau. !!!\n")
+            
+            # // Timestamp moi la thoi gian cua dong log thu 10.000
+            new_latest_timestamp = new_entries[-1][0]
+        else:
+            final_lines = [x[1] for x in new_entries]
+            if new_entries:
+                new_latest_timestamp = new_entries[-1][0]
+            else:
+                # // Khong co log moi -> day timestamp len hien tai
+                new_latest_timestamp = end_time
+
+        log_count = len(final_lines)
+        logging.info(f"[{host_id}] Da loc duoc {log_count} dong log phu hop.")
         
-        log_count = len(new_entries)
-        # // Neu khong co log moi, ta van phai update timestamp len end_time de lan sau khong quet lai vung trong nay
-        if log_count == 0:
-            latest_log_time = end_time
-
-        logging.info(f"[{host_id}] Tim thay {log_count} dong log moi.")
-        return ("".join(new_entries), start_time, end_time, log_count, latest_log_time)
+        return ("".join(final_lines), start_time, end_time, log_count, new_latest_timestamp)
 
     except FileNotFoundError:
-        logging.error(f"[{host_id}] Loi: Khong tim thay file log tai '{file_path}'.")
+        logging.error(f"[{host_id}] Loi: Khong tim thay file log '{file_path}'.")
         return (None, None, None, 0, None)
     except Exception as e:
-        logging.error(f"[{host_id}] Loi khong mong muon khi doc file: {e}")
+        logging.error(f"[{host_id}] Loi khong mong muon: {e}")
         return (None, None, None, 0, None)

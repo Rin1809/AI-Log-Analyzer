@@ -492,7 +492,7 @@ const HostFormPage = () => {
             <Modal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} isCentered>
                 <ModalOverlay />
                 <ModalContent>
-                    <ModalHeader>Manage Emails - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
+                    <ModalHeader fontWeight="normal" >Manage Emails - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
                         <HStack mb={4}>
@@ -511,7 +511,7 @@ const HostFormPage = () => {
                         </Wrap>
                     </ModalBody>
                     <ModalFooter>
-                        <Button onClick={() => setIsEmailModalOpen(false)}>Done</Button>
+                        <Button fontWeight={'normal'} onClick={() => setIsEmailModalOpen(false)}>Done</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>

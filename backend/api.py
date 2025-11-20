@@ -107,7 +107,6 @@ class HostConfig(BaseModel):
     context_files: List[str] = []
     pipeline: List[PipelineStage] = []
 
-    # --- SECURITY FIX: CHẶN INI INJECTION ---
     @field_validator('syshostname')
     @classmethod
     def validate_hostname(cls, v: str) -> str:

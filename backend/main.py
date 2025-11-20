@@ -74,7 +74,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
     model_name = stage_config.get('model', 'gemini-2.5-flash-lite')
     recipient_emails = stage_config.get('recipient_emails', '')
 
-    # 1. Doc log va nhan ve candidate_timestamp (chua luu)
     read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode)
     
     if not read_result or read_result[0] is None:
@@ -83,22 +82,18 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
 
     logs_content, start_time, end_time, log_count, candidate_timestamp = read_result
 
-    # 2. Neu khong co log moi, chi can cap nhat timestamp de lan sau khong quet lai
     if log_count == 0:
         logging.info(f"[{host_section}] No new logs. Advancing timestamp.")
         state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
         return True
 
-    # 3. Goi AI Analysis
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
     analysis_raw = gemini_analyzer.analyze_with_gemini(host_section, logs_content, bonus_context, api_key, prompt_file, model_name)
 
-    # // Check fail tu AI de rollback (khong luu state)
     if "Gemini blocked response" in analysis_raw or "Fatal Gemini Error" in analysis_raw:
         logging.error(f"[{host_section}] AI Analysis Failed. Data integrity protection: NOT saving state. Will retry next cycle.")
         return False
 
-    # 4. Xu ly ket qua va luu report
     summary_data = utils.extract_json_from_text(analysis_raw) or {"total_blocked_events": "N/A"}
     analysis_markdown = re.sub(r'```json\s*.*?\s*```', '', analysis_raw, flags=re.DOTALL | re.IGNORECASE).strip()
 
@@ -118,7 +113,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
         logging.error(f"[{host_section}] Failed to save report JSON. Rolling back state.")
         return False
 
-    # 5. TRANSACTION COMMIT: Moi thu da OK, gio moi luu state
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     logging.info(f"[{host_section}] State committed. Log pointer updated to {candidate_timestamp}")
 
