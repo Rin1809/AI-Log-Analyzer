@@ -146,7 +146,8 @@ const HostStatusPage = () => {
   }, [status, searchTerm]);
 
   if (loading) {
-    return <Center h="80vh"><Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" /></Center>;
+    // style cho thanh loading
+    return <Center h="80vh"><Spinner size="xl" /></Center>;
   }
 
   if (error) {

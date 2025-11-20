@@ -136,7 +136,8 @@ const MainDashboard = () => {
 
     // --- Render logic ---
     if (loading) {
-        return <Center h="80vh"><Spinner thickness="4px" speed="0.65s" emptyColor="gray.200" color="blue.500" size="xl" /></Center>;
+        // style thanh loading
+        return <Center h="80vh"><Spinner size="xl" /></Center>;
     }
 
     if (error) {

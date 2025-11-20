@@ -7,7 +7,8 @@ import {
   Switch, NumberInput, NumberInputField, NumberInputStepper, NumberIncrementStepper, NumberDecrementStepper,
   useColorModeValue, Flex, Checkbox, Tooltip, SimpleGrid,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
-  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement, Badge
+  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement, Badge,
+  Spinner, Center
 } from '@chakra-ui/react';
 import { 
     ArrowBackIcon, AddIcon, ArrowUpIcon, ArrowDownIcon, 
@@ -245,7 +246,10 @@ const HostFormPage = () => {
     const filteredContextFiles = availableContextFiles.filter(f => f.toLowerCase().includes(contextSearch.toLowerCase()));
     const hasSelectedFiles = basicInfo.context_files.length > 0;
 
-    if(loading) return <Box p={10}>Loading...</Box>;
+    if(loading) {
+        // thanh loading
+        return <Center h="80vh"><Spinner size="xl" /></Center>;
+    }
 
     return (
         <VStack spacing={6} align="stretch" pb={20}>
