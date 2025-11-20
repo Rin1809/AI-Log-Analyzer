@@ -40,7 +40,7 @@ Sau đó, tạo một báo cáo chi tiết bằng tiếng Việt, sử dụng Ma
 
 4.  **Cảnh báo An ninh và Tình trạng Hệ thống**:
     *   Phân tích các log của Suricata (nếu có) để xác định các cảnh báo về xâm nhập (IDS/IPS alerts).
-    *   Phân tích các log hệ thống khác (DHCP, DNS, OpenVPN): Có lỗi nào lặp đi lặp lại không? (ví dụ: DHCP lease conflict, DNS resolution errors). Đây là một phần quan trọng, đừng bỏ qua.
+    *   Phân tích các log hệ thống khác (DHCP, DNS, OpenVPN): Có lỗi nào lặp đi lặp lại không? (ví dụ: DHCP lease conflict, DNS resolution errors). Đây là một phần quan trọng, đừng bỏ qua...
 
 5.  **Đề xuất và Kiến nghị**:
     *   **Hành động ngay lập tức**: Các đề xuất cần thực hiện ngay để xử lý các mối đe dọa vừa phát hiện (ví dụ: "Tạo rule chặn ngay lập tức IP `x.x.x.x` trên WAN interface").

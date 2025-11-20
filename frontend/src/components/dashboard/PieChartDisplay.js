@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Center, Text, VStack, HStack, useColorModeValue } from '@chakra-ui/react';
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from 'recharts';
 
-// Extended palette: 20 distinct colors (Synced with LineChart)
+// LineChart
 const COLORS = [
     '#3182CE', // Blue
     '#805AD5', // Purple

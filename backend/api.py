@@ -29,7 +29,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.4.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.5.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -102,6 +102,10 @@ class HostConfig(BaseModel):
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
     pipeline: List[PipelineStage] = []
+
+class PromptFile(BaseModel):
+    filename: str
+    content: str
 
 # --- Helper Functions ---
 def get_host_id(hostname: str) -> str:
@@ -199,7 +203,6 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
     config.read(config_path)
     if not config.has_section(host_id): raise HTTPException(status_code=404, detail="Host not found")
     
-    # --- Logic doi ten thu muc neu ten Stage thay doi (KISS approach) ---
     try:
         old_pipeline_json = config.get(host_id, 'pipeline_config', fallback='[]')
         old_pipeline = json.loads(old_pipeline_json)
@@ -209,7 +212,6 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
         base_report_dir = sys_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
         host_report_dir = os.path.join(base_report_dir, host_id)
 
-        # Duyet qua cac stage theo index. Neu index ton tai o ca 2 ma ten khac nhau -> Rename folder
         if os.path.exists(host_report_dir):
             for i, new_stage in enumerate(new_pipeline):
                 if i < len(old_pipeline):
@@ -232,7 +234,6 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                                     logging.error(f"Failed to rename folder {old_slug} to {new_slug}: {e}")
     except Exception as e:
         logging.error(f"Error during directory rename check: {e}")
-    # ---------------------------------------------------------------------
 
     old_enabled = config.get(host_id, 'enabled', fallback='True')
     config.remove_section(host_id)
@@ -267,6 +268,7 @@ async def get_gemini_models():
     if 'GeminiModels' not in config: return {}
     return dict(config.items('GeminiModels'))
 
+# --- Context Files APIs ---
 @app.get("/api/context-files", response_model=List[str])
 async def get_context_files(test_mode: bool = False):
     sys_config = get_system_config_parser(test_mode)
@@ -291,6 +293,64 @@ async def delete_context_file(filename: str, test_mode: bool = False):
     path = os.path.join(context_dir, filename)
     if os.path.exists(path): os.remove(path)
     return {"status": "deleted"}
+
+# --- PROMPT FILES APIs ---
+def get_prompts_dir(test_mode: bool) -> str:
+    sys_config = get_system_config_parser(test_mode)
+    return sys_config.get('System', 'prompt_directory', fallback='prompts')
+
+@app.get("/api/prompts", response_model=List[str])
+async def list_prompts(test_mode: bool = False):
+    prompt_dir = get_prompts_dir(test_mode)
+    if not os.path.isdir(prompt_dir): return []
+    # Chi lay file .md
+    return [f for f in os.listdir(prompt_dir) if f.endswith('.md')]
+
+@app.get("/api/prompts/{filename}")
+async def get_prompt_content(filename: str, test_mode: bool = False):
+    prompt_dir = get_prompts_dir(test_mode)
+    file_path = os.path.join(prompt_dir, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(404, "Prompt file not found")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return {"filename": filename, "content": content}
+
+@app.post("/api/prompts")
+async def save_prompt(prompt: PromptFile, test_mode: bool = False):
+    prompt_dir = get_prompts_dir(test_mode)
+    if not os.path.exists(prompt_dir):
+        os.makedirs(prompt_dir, exist_ok=True)
+    
+    # Don gian hoa ten file, them .md neu thieu
+    safe_name = os.path.basename(prompt.filename)
+    if not safe_name.endswith('.md'): safe_name += '.md'
+    
+    file_path = os.path.join(prompt_dir, safe_name)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(prompt.content)
+        return {"status": "saved", "filename": safe_name}
+    except Exception as e:
+        raise HTTPException(500, f"Error saving prompt: {str(e)}")
+
+@app.delete("/api/prompts/{filename}")
+async def delete_prompt(filename: str, test_mode: bool = False):
+    prompt_dir = get_prompts_dir(test_mode)
+    file_path = os.path.join(prompt_dir, filename)
+    
+    # // logic bao ve file mac dinh
+    if filename in ['prompt_template.md', 'summary_prompt_template.md', 'final_summary_prompt_template.md']:
+        raise HTTPException(403, "Cannot delete default system prompts.")
+
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            return {"status": "deleted"}
+        except Exception as e:
+            raise HTTPException(500, f"Error deleting prompt: {str(e)}")
+    raise HTTPException(404, "Prompt file not found")
+
 
 # --- Reports APIs ---
 
@@ -321,8 +381,6 @@ async def get_all_reports(test_mode: bool = False):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = json.load(f)
                 
-                # Fallback neu path parse loi, nhung uu tien path (folder name)
-                # vi path la source of truth sau khi rename
                 r_type = inferred_type if inferred_type != 'unknown' else content.get('report_type', 'unknown')
 
                 reports.append(ReportInfo(
@@ -366,9 +424,7 @@ async def preview_report_email(path: str, test_mode: bool = False):
         system_settings = get_system_config_parser(test_mode)
         prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
         
-        # // Logic tim template dua tren folder hoac type
         r_type = data.get('report_type', 'unknown')
-        # Quick check: neu folder/type co chua chu 'summary' thi dung template summary
         is_summary = 'summary' in r_type.lower()
         
         if is_summary:

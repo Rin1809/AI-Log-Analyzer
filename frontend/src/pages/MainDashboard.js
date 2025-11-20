@@ -52,8 +52,6 @@ const MainDashboard = () => {
     }, []);
 
     useEffect(() => {
-        // FORCE RESET DATA WHEN MODE CHANGES
-        // This fixes the chart glitch where data doesn't update or merge incorrectly
         setStatusData([]);
         setReports([]);
         isInitialLoad.current = true;
@@ -63,7 +61,7 @@ const MainDashboard = () => {
         return () => clearInterval(intervalId);
     }, [fetchData, isTestMode]);
 
-    // --- Memoized data for charts ---
+    
     const hostStatusData = useMemo(() => {
         if (!statusData || statusData.length === 0) return [];
         const active = statusData.filter(s => s.is_enabled).length;

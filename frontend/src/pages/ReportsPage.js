@@ -65,7 +65,6 @@ const ReportsPage = () => {
     return () => clearInterval(intervalId);
   }, [fetchData, isTestMode]);
 
-  // --- Helper Logic for Filtering ---
   const checkStatus = (stats, filterStatus) => {
       if (!filterStatus) return true;
       
@@ -93,7 +92,6 @@ const ReportsPage = () => {
       return true;
   };
 
-  // --- Main Filtering Logic ---
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
       const hostnameMatch = report.hostname.toLowerCase().includes(filters.hostname.toLowerCase());

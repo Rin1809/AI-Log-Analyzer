@@ -14,6 +14,9 @@ import {
     AttachmentIcon, SearchIcon, EmailIcon, SettingsIcon, MinusIcon
 } from '@chakra-ui/icons';
 
+
+import PromptManager from '../components/hosts/PromptManager';
+
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
     const { hostId } = useParams();
@@ -50,7 +53,7 @@ const HostFormPage = () => {
     const [currentStageIndex, setCurrentStageIndex] = useState(null);
     const [emailInput, setEmailInput] = useState('');
 
-    // --- Styles (Moved Hooks to Top Level) ---
+    // --- Styles 
     const bg = useColorModeValue("white", "gray.800");
     const hoverBg = useColorModeValue('gray.50', 'gray.700');
     const btnAddBg = useColorModeValue('gray.100', 'gray.700');
@@ -207,7 +210,6 @@ const HostFormPage = () => {
 
     const addEmail = () => {
         if (!emailInput || currentStageIndex === null) return;
-        // Defensive: use fallback || '' to avoid split on undefined
         const rawEmails = pipeline[currentStageIndex].recipient_emails || '';
         const currentEmails = rawEmails.split(',').map(e=>e.trim()).filter(Boolean);
         
@@ -220,7 +222,6 @@ const HostFormPage = () => {
 
     const removeEmail = (emailToRemove) => {
         if (currentStageIndex === null) return;
-        // Defensive: use fallback || '' to avoid split on undefined
         const rawEmails = pipeline[currentStageIndex].recipient_emails || '';
         const currentEmails = rawEmails.split(',').map(e=>e.trim()).filter(Boolean);
         
@@ -253,7 +254,6 @@ const HostFormPage = () => {
                     <IconButton icon={<ArrowBackIcon />} onClick={() => navigate('/status')} variant="ghost" aria-label="Back" />
                     <Heading size="lg" fontWeight="normal">{hostId ? `Edit ${basicInfo.syshostname}` : 'New Host'}</Heading>
                 </HStack>
-                {/* Save Button */}
                 <Button 
                     isLoading={isSaving} 
                     onClick={handleSave} 
@@ -269,7 +269,6 @@ const HostFormPage = () => {
             </Flex>
 
             <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
-                {/* Column 1: Basic Info */}
                 <VStack spacing={6} align="stretch">
                     <Card bg={bg}>
                         <CardHeader><Heading size="md" fontWeight="normal">Basic Information</Heading></CardHeader>
@@ -325,7 +324,6 @@ const HostFormPage = () => {
                                                     <AttachmentIcon color="green.500" />
                                                     <Text fontSize="sm" fontWeight="normal" isTruncated>{basicInfo.networkdiagram.split('/').pop()}</Text>
                                                 </HStack>
-                                                {/* Trash Can -> Minus Icon, Ghost Style */}
                                                 <IconButton 
                                                     size="xs" icon={<MinusIcon />} position="absolute" top="-10px" right="-10px" 
                                                     variant="ghost" color="gray.500" rounded="full" bg={trashIconBg}
@@ -352,7 +350,6 @@ const HostFormPage = () => {
                                             <input type="file" ref={contextInputRef} style={{display: 'none'}} onChange={e => handleFileUpload(e, 'context')} />
                                             <Tooltip label="Upload New"><IconButton size="sm" icon={<AddIcon />} onClick={() => contextInputRef.current.click()} /></Tooltip>
                                             
-                                            {/* Bulk Delete -> Minus Icon */}
                                             <Tooltip label="Delete Selected">
                                                 <IconButton 
                                                     size="sm" icon={<MinusIcon />} 
@@ -377,7 +374,6 @@ const HostFormPage = () => {
                     </Card>
                 </VStack>
 
-                {/* Column 2: Pipeline Editor */}
                 <VStack spacing={6} align="stretch">
                     <Card bg={bg} h="full">
                         <CardHeader>
@@ -392,7 +388,6 @@ const HostFormPage = () => {
                                     <Box key={idx} borderWidth="1px" borderRadius="md" p={3} position="relative" _hover={{ borderColor: "blue.300", boxShadow: "sm" }}>
                                         <Flex justify="space-between" mb={2} align="center">
                                             <HStack>
-                                                {/* Labels -> Badge style */}
                                                 <Badge 
                                                     colorScheme={idx === 0 ? "blue" : "purple"} 
                                                     variant="subtle" 
@@ -411,7 +406,6 @@ const HostFormPage = () => {
                                                 <IconButton size="xs" icon={<ArrowUpIcon />} isDisabled={idx===0} onClick={()=>moveStage(idx, -1)} variant="ghost"/>
                                                 <IconButton size="xs" icon={<ArrowDownIcon />} isDisabled={idx===pipeline.length-1} onClick={()=>moveStage(idx, 1)} variant="ghost"/>
                                                 
-                                                {/* Stage Delete -> Minus Icon */}
                                                 <IconButton 
                                                     size="xs" icon={<MinusIcon />} 
                                                     variant="ghost" color="gray.500" bg={stageTrashBg}
@@ -433,7 +427,11 @@ const HostFormPage = () => {
                                             
                                             <FormControl>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">Prompt File</FormLabel>
-                                                <Input size="xs" value={stage.prompt_file} onChange={e=>updateStage(idx, 'prompt_file', e.target.value)}/>
+                                                <PromptManager 
+                                                    value={stage.prompt_file} 
+                                                    onChange={(newVal) => updateStage(idx, 'prompt_file', newVal)}
+                                                    isTestMode={isTestMode}
+                                                />
                                             </FormControl>
 
                                             {idx > 0 && (
@@ -467,7 +465,6 @@ const HostFormPage = () => {
                 </VStack>
             </SimpleGrid>
 
-            {/* Delete File Modal */}
             <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} isCentered>
                 <ModalOverlay />
                 <ModalContent>

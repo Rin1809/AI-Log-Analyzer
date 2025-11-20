@@ -50,7 +50,6 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
   };
 
   const handleSaveClick = () => {
-    // // basic validation
     if (!profile.profile_name || !profile.server || !profile.port || !profile.sender_email) {
       toast({
         title: "Missing Information",
