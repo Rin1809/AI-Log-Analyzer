@@ -134,7 +134,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                             fontSize="xs"
                             fontWeight="normal"
                         >
-                            Profile 
+                            Profile
                         </MenuButton>
                         <Portal>
                             <MenuList zIndex={2500}>
