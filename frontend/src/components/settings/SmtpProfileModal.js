@@ -69,7 +69,7 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
     <Modal isOpen={isOpen} onClose={onClose} isCentered>
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>{profileData ? 'Edit' : 'Add New'} SMTP Profile</ModalHeader>
+        <ModalHeader fontWeight="normal">{profileData ? 'Edit' : 'Add New'} SMTP Profile</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
           <VStack spacing={4}>
@@ -115,7 +115,7 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
           <Button variant="ghost" mr={3} onClick={onClose}>
             Cancel
           </Button>
-          <Button colorScheme="blue" onClick={handleSaveClick}>
+          <Button  colorScheme="gray" onClick={handleSaveClick}>
             Save Profile
           </Button>
         </ModalFooter>

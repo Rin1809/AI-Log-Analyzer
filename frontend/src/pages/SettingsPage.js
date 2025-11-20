@@ -251,7 +251,7 @@ const SettingsPage = () => {
       </Grid>
       
       <Box pt={4}>
-        <Button onClick={handleSave} isLoading={isSaving} isDisabled={loading || !!error} leftIcon={<SettingsIcon />} bg={saveButtonBg} color={saveButtonColor} _hover={{ bg: saveButtonHoverBg }}>
+        <Button fontWeight="normal" onClick={handleSave} isLoading={isSaving} isDisabled={loading || !!error} leftIcon={<SettingsIcon />} bg={saveButtonBg} color={saveButtonColor} _hover={{ bg: saveButtonHoverBg }}>
           Save
         </Button>
       </Box>
