@@ -15,8 +15,8 @@ import {
     AttachmentIcon, SearchIcon, EmailIcon, SettingsIcon, MinusIcon
 } from '@chakra-ui/icons';
 
-
 import PromptManager from '../components/hosts/PromptManager';
+import ApiKeySelector from '../components/hosts/ApiKeySelector'; // New import
 
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
@@ -297,8 +297,13 @@ const HostFormPage = () => {
                                     </FormControl>
                                 </SimpleGrid>
 
-                                <FormControl isRequired><FormLabel>Gemini API Key</FormLabel>
-                                    <Input type="password" value={basicInfo.geminiapikey} onChange={e=>setBasicInfo({...basicInfo, geminiapikey: e.target.value})}/>
+                                <FormControl isRequired>
+                                    <FormLabel>Gemini API Key</FormLabel>
+                                    <ApiKeySelector 
+                                        value={basicInfo.geminiapikey} 
+                                        onChange={(val) => setBasicInfo({...basicInfo, geminiapikey: val})}
+                                        isTestMode={isTestMode}
+                                    />
                                 </FormControl>
                             </VStack>
                         </CardBody>

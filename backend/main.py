@@ -1,4 +1,3 @@
-
 import os
 import smtplib
 import logging
@@ -50,6 +49,17 @@ def get_attachments(config, host_section, system_settings):
              if val and os.path.isfile(val): attachments.append(val)
              
     return attachments
+
+def resolve_api_key(raw_key, system_settings):
+    """
+    Giai ma key neu la profile (bat dau bang profile:).
+    """
+    if raw_key.startswith('profile:'):
+        profile_name = raw_key.split(':', 1)[1].strip()
+        if system_settings.has_section('Gemini_Keys'):
+            return system_settings.get('Gemini_Keys', profile_name, fallback=raw_key)
+        return raw_key # Fallback neu khong tim thay
+    return raw_key
 
 # --- PIPELINE EXECUTION ---
 
@@ -255,8 +265,11 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
         logging.warning(f"[{host_section}] Empty pipeline.")
         return
         
-    api_key = host_config.get(host_section, 'GeminiAPIKey', fallback='')
-    if not api_key or "YOUR_API_KEY" in api_key: return
+    raw_api_key = host_config.get(host_section, 'GeminiAPIKey', fallback='')
+    if not raw_api_key or "YOUR_API_KEY" in raw_api_key: return
+
+    # // Resolve API Key (check if it's a profile)
+    api_key = resolve_api_key(raw_api_key, system_settings)
 
     now = datetime.now()
     

@@ -30,7 +30,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.8.0")
+app = FastAPI(title="AI-log-analyzer API", version="4.9.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -94,6 +94,7 @@ class SystemSettings(BaseModel):
     active_smtp_profile: Optional[str] = None
     attach_context_files: bool = False
     scheduler_check_interval_seconds: int = 60
+    gemini_profiles: Dict[str, str] = {} 
     
 class HostConfig(BaseModel):
     syshostname: str = Field(..., min_length=1)
@@ -344,8 +345,6 @@ async def upload_context_file(test_mode: bool = False, file: UploadFile = File(.
     
     os.makedirs(context_dir, exist_ok=True)
     
-    # // QA: Check mime type neu la diagram
-    # O day ta check chung, neu file ko hop le co the loc
     if file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
         if not file.content_type.startswith('image/'):
             raise HTTPException(400, "Invalid image file type")
@@ -616,6 +615,14 @@ async def get_settings(test_mode: bool = False):
                 sender_email=p.get('sender_email'), sender_password=p.get('sender_password', '')
             )
     settings.smtp_profiles = profiles
+    
+    # // Load Gemini Profiles
+    gemini_profiles = {}
+    if conf.has_section('Gemini_Keys'):
+        for name, key in conf.items('Gemini_Keys'):
+            gemini_profiles[name] = key
+    settings.gemini_profiles = gemini_profiles
+
     return settings
 
 @app.post("/api/system-settings", response_model=Dict)
@@ -625,6 +632,8 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
     try:
         with file_lock(path):
             conf = get_system_config_parser(test_mode)
+            
+            # // Xoa cac section cu de ghi moi (clean slate)
             for s in conf.sections(): 
                 if s.startswith('Email_'): conf.remove_section(s)
                 
@@ -644,7 +653,16 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
                 conf[sec]['port'] = str(prof.port)
                 conf[sec]['sender_email'] = prof.sender_email
                 conf[sec]['sender_password'] = prof.sender_password
-                
+            
+            # // Ghi Gemini Profiles
+            if 'Gemini_Keys' not in conf: conf.add_section('Gemini_Keys')
+            # Xoa key cu
+            conf.remove_section('Gemini_Keys')
+            conf.add_section('Gemini_Keys')
+            
+            for name, key in settings.gemini_profiles.items():
+                conf.set('Gemini_Keys', name, key)
+
             with open(path, 'w', encoding='utf-8') as f: conf.write(f)
             
         return {"status": "saved"}

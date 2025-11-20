@@ -30,9 +30,15 @@ import {
   Stack,
   HStack,
   useDisclosure,
+  Tag,
+  TagLabel,
+  TagRightIcon,
+  Wrap,
+  WrapItem
 } from '@chakra-ui/react';
-import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon } from '@chakra-ui/icons';
+import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon, StarIcon} from '@chakra-ui/icons';
 import SmtpProfileModal from '../components/settings/SmtpProfileModal';
+import ApiKeyManagerModal from '../components/hosts/ApiKeyManagerModal'; // Reused here
 
 const SettingsCard = ({ title, children, actions }) => {
   const cardBg = useColorModeValue('white', 'gray.800');
@@ -60,6 +66,7 @@ const SettingsPage = () => {
     active_smtp_profile: '',
     attach_context_files: false,
     scheduler_check_interval_seconds: 60,
+    gemini_profiles: {}
   });
   
   const [schedulerType, setSchedulerType] = useState('default');
@@ -68,6 +75,9 @@ const SettingsPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [currentProfile, setCurrentProfile] = useState(null);
   
+  // Key Modal State
+  const { isOpen: isKeyModalOpen, onOpen: onKeyModalOpen, onClose: onKeyModalClose } = useDisclosure();
+
   const toast = useToast();
   const { isOpen: isModalOpen, onOpen: onModalOpen, onClose: onModalClose } = useDisclosure();
   
@@ -89,6 +99,7 @@ const SettingsPage = () => {
         active_smtp_profile: data.active_smtp_profile || '',
         attach_context_files: data.attach_context_files || false,
         scheduler_check_interval_seconds: data.scheduler_check_interval_seconds || 60,
+        gemini_profiles: data.gemini_profiles || {}
       });
       setSchedulerType(data.scheduler_check_interval_seconds === 60 ? 'default' : 'custom');
     } catch (err) {
@@ -135,34 +146,33 @@ const SettingsPage = () => {
     }
   };
 
+  // --- SMTP Profile Logic ---
   const handleAddProfile = () => {
     setCurrentProfile(null);
     onModalOpen();
   };
-
   const handleDeleteProfile = () => {
     if (!settings.active_smtp_profile) return;
-    const profileNameToDelete = settings.active_smtp_profile;
     const newProfiles = { ...settings.smtp_profiles };
-    delete newProfiles[profileNameToDelete];
+    delete newProfiles[settings.active_smtp_profile];
     setSettings(prev => ({
         ...prev,
         smtp_profiles: newProfiles,
-        active_smtp_profile: Object.keys(newProfiles)[0] || '' // // tu dong chon profile dau tien hoac la rong
+        active_smtp_profile: Object.keys(newProfiles)[0] || ''
     }));
   };
-
   const handleSaveProfile = (profile) => {
     setSettings(prev => ({
       ...prev,
-      smtp_profiles: {
-        ...prev.smtp_profiles,
-        [profile.profile_name]: profile,
-      },
-      // // tu dong active profile vua tao
+      smtp_profiles: { ...prev.smtp_profiles, [profile.profile_name]: profile },
       active_smtp_profile: prev.active_smtp_profile || profile.profile_name, 
     }));
   };
+
+  // --- Key Manager Callbacks ---
+  const handleKeysChanged = (newProfiles) => {
+      setSettings(prev => ({ ...prev, gemini_profiles: newProfiles }));
+  }
 
   if (loading) {
     return <Center h="80vh"><Spinner size="xl" /></Center>;
@@ -174,7 +184,8 @@ const SettingsPage = () => {
       
       {error && <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>}
 
-      <Grid templateColumns={{ base: '1fr', lg: '2fr 1fr' }} gap={6}>
+      {/* Change layout to equal columns (1fr 1fr) */}
+      <Grid templateColumns={{ base: '1fr', lg: 'repeat(2, 1fr)' }} gap={6}>
         <GridItem>
           <SettingsCard title="Default Paths">
             {['report_directory', 'prompt_directory', 'context_directory'].map(key => (
@@ -188,6 +199,7 @@ const SettingsPage = () => {
             ))}
           </SettingsCard>
         </GridItem>
+
         <GridItem>
           <SettingsCard title="Email Server (SMTP)">
               <FormControl>
@@ -216,9 +228,35 @@ const SettingsPage = () => {
               </FormControl>
           </SettingsCard>
         </GridItem>
-        <GridItem colSpan={{ base: 1, lg: 2 }}>
+
+        <GridItem>
+            <SettingsCard 
+                title="Gemini API Key Profiles" 
+                actions={<Button size="xs" fontWeight="normal" leftIcon={<SettingsIcon />} onClick={onKeyModalOpen}>Manage Keys</Button>}
+            >
+                <Wrap spacing={3}>
+                    {Object.keys(settings.gemini_profiles).length === 0 ? (
+                        <Text fontSize="sm" color="gray.500" fontStyle="italic">No profiles configured.</Text>
+                    ) : (
+                        Object.keys(settings.gemini_profiles).map(name => (
+                            <WrapItem key={name}>
+                                <Tag size="md" borderRadius="full" variant="subtle" colorScheme="blue">
+                                    <TagLabel>{name}</TagLabel>
+                                    <TagRightIcon as={StarIcon} />
+                                </Tag>
+                            </WrapItem>
+                        ))
+                    )}
+                </Wrap>
+                <Text fontSize="xs" color="gray.400" mt={2}>
+                    Manage API keys centrally. Select a profile when configuring a host.
+                </Text>
+            </SettingsCard>
+        </GridItem>
+
+        <GridItem>
             <SettingsCard title="General">
-                 <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap={6}>
+                 <VStack spacing={6} align="stretch">
                     <FormControl>
                         <FormLabel fontSize="sm">Scheduler Interval</FormLabel>
                         <RadioGroup onChange={handleSchedulerIntervalChange} value={schedulerType}>
@@ -235,6 +273,7 @@ const SettingsPage = () => {
                                 value={settings.scheduler_check_interval_seconds}
                                 onChange={handleInputChange}
                                 width="120px"
+                                size="sm"
                             />
                         )}
                     </FormControl>
@@ -245,7 +284,7 @@ const SettingsPage = () => {
                         </Box>
                         <Switch id="test-mode-switch" colorScheme="blue" isChecked={isTestMode} onChange={(e) => setIsTestMode(e.target.checked)} />
                     </FormControl>
-                 </Grid>
+                 </VStack>
             </SettingsCard>
         </GridItem>
       </Grid>
@@ -257,6 +296,14 @@ const SettingsPage = () => {
       </Box>
 
       <SmtpProfileModal isOpen={isModalOpen} onClose={onModalClose} onSave={handleSaveProfile} profileData={currentProfile} />
+      
+      <ApiKeyManagerModal 
+          isOpen={isKeyModalOpen} 
+          onClose={onKeyModalClose} 
+          isTestMode={isTestMode}
+          onProfilesChange={handleKeysChanged}
+      />
+
     </VStack>
   );
 };
