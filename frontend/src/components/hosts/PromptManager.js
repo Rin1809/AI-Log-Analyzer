@@ -43,10 +43,11 @@ const FileIcon = (props) => (
     </Icon>
 );
 
+
 const PLACEHOLDERS = [
-    { label: 'Log Content', value: '{logs_content}' },
+    { label: 'Raw Logs (Stage 0)', value: '{logs_content}' },
     { label: 'Bonus Context', value: '{bonus_context}' },
-    { label: 'Reports (Summary)', value: '{reports_content}' }
+    { label: 'Prev Stage Reports (Stage 1+)', value: '{reports_content}' }
 ];
 
 const PromptManager = ({ value, onChange, isTestMode }) => {
@@ -193,6 +194,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                         overflow="hidden"
                         _focus={{ boxShadow: 'none' }}
                         _active={{ bg: 'transparent' }}
+                        isLoading={loading} // Fixed unused var warning
                     >
                         <HStack spacing={2}>
                             <FileIcon color={value ? "blue.500" : "gray.400"} boxSize={4} />
