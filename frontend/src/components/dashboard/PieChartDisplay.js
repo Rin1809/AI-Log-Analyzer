@@ -13,7 +13,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
-// Extended palette: 20 distinct colors
+//  20 mau 
 const COLORS = [
     '#3182CE', // Blue
     '#805AD5', // Purple
@@ -62,14 +62,12 @@ const PieChartDisplay = ({ data }) => {
     return (
         <Flex 
             h="100%" 
-            direction={{ base: 'column', md: 'row' }} // Fix: Stack vertical on small screens
+            direction={{ base: 'column', md: 'row' }} 
             align="center" 
             justify="space-between" 
             px={2}
             py={{ base: 2, md: 0 }}
         >
-            {/* Left Side: The Chart */}
-            {/* Fix: Width 100% on mobile, 50% on desktop. Height handled similarly to avoid squashing */}
             <Box w={{ base: '100%', md: '50%' }} h={{ base: '200px', md: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -77,8 +75,8 @@ const PieChartDisplay = ({ data }) => {
                             data={data}
                             cx="50%"
                             cy="50%"
-                            innerRadius="60%" // Fix: Use % instead of px
-                            outerRadius="80%" // Fix: Use % instead of px to prevent clipping
+                            innerRadius="60%" 
+                            outerRadius="80%" 
                             paddingAngle={2}
                             dataKey="value"
                         >
@@ -94,13 +92,13 @@ const PieChartDisplay = ({ data }) => {
                 </ResponsiveContainer>
             </Box>
 
-            {/* Right Side: Paginated Legend */}
+     
             <VStack 
                 w={{ base: '100%', md: '50%' }} 
                 align="stretch" 
                 spacing={1} 
                 pl={{ base: 0, md: 4 }}
-                mt={{ base: 2, md: 0 }} // Add margin top on mobile
+                mt={{ base: 2, md: 0 }} 
             >
                 {currentLegendData.map((entry, idx) => {
                     const realIndex = (currentPage * ITEMS_PER_PAGE) + idx;
