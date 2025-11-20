@@ -1,3 +1,4 @@
+
 import os
 import smtplib
 import logging
@@ -55,6 +56,7 @@ def get_attachments(config, host_section, system_settings):
 def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, system_settings, test_mode=False):
     """
     Stage 0: RAW LOG ANALYSIS (Periodic)
+    Logic Transactional: Chi luu state khi xu ly thanh cong.
     """
     stage_name = stage_config.get('name', 'Periodic')
     logging.info(f"[{host_section}] >>> Running Stage 0: {stage_name}")
@@ -72,18 +74,32 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
     model_name = stage_config.get('model', 'gemini-2.5-flash-lite')
     recipient_emails = stage_config.get('recipient_emails', '')
 
-    logs_content, start_time, end_time, log_count = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode)
-    if logs_content is None:
-        logging.error(f"[{host_section}] Log read failed.")
+    # 1. Doc log va nhan ve candidate_timestamp (chua luu)
+    read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode)
+    
+    if not read_result or read_result[0] is None:
+        logging.error(f"[{host_section}] Log read failed. Aborting.")
         return False
 
+    logs_content, start_time, end_time, log_count, candidate_timestamp = read_result
+
+    # 2. Neu khong co log moi, chi can cap nhat timestamp de lan sau khong quet lai
+    if log_count == 0:
+        logging.info(f"[{host_section}] No new logs. Advancing timestamp.")
+        state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
+        return True
+
+    # 3. Goi AI Analysis
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
     analysis_raw = gemini_analyzer.analyze_with_gemini(host_section, logs_content, bonus_context, api_key, prompt_file, model_name)
 
-    # // Parse JSON bang helper moi, on dinh hon
+    # // Check fail tu AI de rollback (khong luu state)
+    if "Gemini blocked response" in analysis_raw or "Fatal Gemini Error" in analysis_raw:
+        logging.error(f"[{host_section}] AI Analysis Failed. Data integrity protection: NOT saving state. Will retry next cycle.")
+        return False
+
+    # 4. Xu ly ket qua va luu report
     summary_data = utils.extract_json_from_text(analysis_raw) or {"total_blocked_events": "N/A"}
-    
-    # // Clean markdown de hien thi dep (xoa block json di)
     analysis_markdown = re.sub(r'```json\s*.*?\s*```', '', analysis_raw, flags=re.DOTALL | re.IGNORECASE).strip()
 
     report_data = {
@@ -98,9 +114,15 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
-    if not report_file: return False
+    if not report_file: 
+        logging.error(f"[{host_section}] Failed to save report JSON. Rolling back state.")
+        return False
 
-    # Send Email
+    # 5. TRANSACTION COMMIT: Moi thu da OK, gio moi luu state
+    state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
+    logging.info(f"[{host_section}] State committed. Log pointer updated to {candidate_timestamp}")
+
+    # Send Email (Non-blocking, fail email khong nen rollback data)
     if recipient_emails:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
@@ -136,7 +158,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
-    all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=True)
+ 
+    all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=False)
     
     reports_to_process = all_prev_reports[:threshold]
     
@@ -151,7 +174,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     logging.info(f"[{host_section}] Aggregating {len(reports_to_process)} reports for {stage_name}.")
 
     combined_analysis, start_time, end_time = [], None, None
-    for path in reversed(reports_to_process):
+    # // Loop xuoi dong thoi gian
+    for path in reports_to_process:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -173,10 +197,12 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     result_raw = gemini_analyzer.analyze_with_gemini(host_section, content_to_analyze, bonus_context, api_key, prompt_file, model_name)
     
-    # // Parse JSON bang helper moi
+    # // Check fail AI
+    if "Gemini blocked response" in result_raw or "Fatal Gemini Error" in result_raw:
+        logging.error(f"[{host_section}] Stage {current_stage_idx} AI Failed. Not saving.")
+        return False
+
     stats = utils.extract_json_from_text(result_raw)
-    
-    # // Clean markdown
     result_md = re.sub(r'```json\s*.*?\s*```', '', result_raw, flags=re.DOTALL | re.IGNORECASE).strip()
     
     report_data = {
@@ -192,7 +218,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
     
-    # Email
+
     recipients = stage_config.get('recipient_emails', '')
     if recipients:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
@@ -213,7 +239,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     start_time=start_time.strftime('%d-%m') if start_time else "?", 
                     end_time=end_time.strftime('%d-%m') if end_time else "?"
                 )
-                atts = reports_to_process # Attach JSONs
+                atts = reports_to_process 
                 diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
                 email_service.send_email(host_section, email_subject, body, smtp, recipients, diag, atts)
             except Exception as e: logging.error(f"Email error {stage_name}: {e}")
@@ -251,12 +277,16 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
         
         if should_run_stage0:
             success = run_pipeline_stage_0(host_config, host_section, stage0_config, api_key, system_settings, test_mode)
+            
+            # // Chi update cycle run neu success
             if success:
                 state_manager.save_last_cycle_run_timestamp(now, host_section, test_mode)
                 if len(pipeline) > 1:
                     curr_buff = state_manager.get_stage_buffer_count(host_section, 1, test_mode)
                     state_manager.save_stage_buffer_count(host_section, 1, curr_buff + 1, test_mode)
                     logging.info(f"[{host_section}] Stage 0 Success. Stage 1 buffer: {curr_buff+1}")
+            else:
+                logging.warning(f"[{host_section}] Stage 0 Failed or Skipped. Will retry next cycle.")
 
     for i in range(1, len(pipeline)):
         current_stage = pipeline[i]
@@ -284,7 +314,6 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
 def main():
     while True:
         try:
-            # // dung utils.file_lock o day hoi thua vi chi doc, nhung giu an toan
             sys_conf = configparser.ConfigParser(interpolation=None); sys_conf.read(SYSTEM_SETTINGS_FILE)
             host_conf = configparser.ConfigParser(interpolation=None); host_conf.read(CONFIG_FILE)
             

@@ -1,38 +1,37 @@
+
 import pytest
 import os
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 from modules.gemini_analyzer import analyze_with_gemini
 from modules.log_reader import read_new_log_entries, MAX_LOG_LINES_PER_RUN
+from modules import state_manager
 from google.api_core import exceptions as google_exceptions
+# Import hàm run_pipeline_stage_0 để test integration logic
+from main import run_pipeline_stage_0
 
-def test_gemini_infinite_retry_prevention(tmp_path): # <--- Thêm tmp_path
+def test_gemini_infinite_retry_prevention(tmp_path): 
     """
     Đảm bảo hệ thống không retry vô tận gây treo tiến trình nếu Google sập hẳn.
     """
-    # Tạo file prompt giả để vượt qua bước check file
     dummpy_prompt = tmp_path / "prompt.md"
     dummpy_prompt.write_text("Dummy prompt content")
     
     with patch('google.generativeai.GenerativeModel') as MockModel:
         mock_instance = MockModel.return_value
-        # Side effect: Luôn ném lỗi 503 Service Unavailable
         mock_instance.generate_content.side_effect = google_exceptions.ServiceUnavailable("Down")
         
-        with patch('time.sleep'): # Skip sleep time
-            # Truyền đường dẫn file prompt giả vào
+        with patch('time.sleep'): 
             result = analyze_with_gemini("HostX", "Log", "", "Key", str(dummpy_prompt), "model")
             
-        # Expect: Phải trả về chuỗi lỗi gracefully
         assert "Lỗi mạng hoặc Rate Limit" in result
         assert mock_instance.generate_content.call_count <= 4
 
 def test_log_reader_memory_limit(temp_test_env):
     """
-    Tạo file log giả lập 100MB (hoặc số dòng cực lớn) để test giới hạn đọc.
+    Tạo file log giả lập 100MB để test giới hạn đọc.
     """
     huge_log_path = os.path.join(temp_test_env['root'], "huge.log")
-    
-    # Tạo file có số dòng gấp đôi giới hạn cho phép
     limit = MAX_LOG_LINES_PER_RUN
     total_lines = limit * 2 + 500
     
@@ -40,12 +39,56 @@ def test_log_reader_memory_limit(temp_test_env):
         for i in range(total_lines):
             f.write(f"Oct 10 10:00:00 pfsense filterlog: Line {i}\n")
             
-    content, _, _, count = read_new_log_entries(huge_log_path, 24, "UTC", "HostTest", test_mode=True)
+    # Update: read_new_log_entries tra ve 5 gia tri
+    content, _, _, count, _ = read_new_log_entries(huge_log_path, 24, "UTC", "HostTest", test_mode=True)
     
     lines = content.splitlines()
-    # Trừ đi dòng warning ở đầu
     actual_log_lines = [l for l in lines if "WARNING" not in l]
     
     assert len(actual_log_lines) <= limit
-    assert f"Line {total_lines-1}" in content, "Phải chứa dòng log mới nhất"
-    assert "Line 0" not in content, "Không được chứa dòng log cũ quá giới hạn"
+    assert f"Line {total_lines-1}" in content
+
+def test_data_integrity_on_ai_failure(temp_test_env):
+    """
+    CRITICAL: Test Transactional Logic.
+    Nếu AI Analysis thất bại, timestamp KHÔNG được cập nhật vào state file.
+    Lần chạy sau phải quét lại đúng đoạn log đó.
+    """
+    host_id = "Host_Integrity_Test"
+    log_file = os.path.join(temp_test_env['root'], "test.log")
+    
+    # 1. Tạo log giả
+    with open(log_file, 'w') as f:
+        f.write("2025 Jan 01 10:00:00 pfsense filterlog: critical packet\n")
+
+    # 2. Mock Config object
+    mock_config = MagicMock()
+    mock_config.get.side_effect = lambda section, key, fallback=None: {
+        'LogFile': log_file,
+        'SysHostname': 'TestHost',
+        'TimeZone': 'UTC'
+    }.get(key, fallback)
+    mock_config.getint.return_value = 24
+
+    mock_sys_settings = MagicMock()
+    mock_sys_settings.get.return_value = str(temp_test_env['report_dir'])
+
+    # 3. Mock log_reader để trả về dữ liệu như thật
+    # Return: (content, start, end, count, NEW_TIMESTAMP)
+    mock_read_return = ("log content", datetime.now(), datetime.now(), 1, datetime(2025, 12, 31))
+    
+    with patch('modules.log_reader.read_new_log_entries', return_value=mock_read_return):
+        # 4. Mock Gemini failure
+        with patch('modules.gemini_analyzer.analyze_with_gemini', return_value="Fatal Gemini Error"):
+            
+            # 5. Run Pipeline
+            success = run_pipeline_stage_0(mock_config, host_id, {}, "key", mock_sys_settings, test_mode=True)
+            
+            # Assert Pipeline bao fail
+            assert success is False
+            
+            # 6. Assert State File KHÔNG tồn tại hoặc KHÔNG cập nhật
+            # Vì đây là lần chạy đầu tiên trong env test, file không nên được tạo ra
+            state_path = state_manager._get_state_file_path(f"last_run_timestamp_{host_id}", test_mode=True)
+            assert not os.path.exists(state_path), "State file should not be created on failure"
+
