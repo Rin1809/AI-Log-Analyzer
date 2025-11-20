@@ -21,9 +21,16 @@ import {
   Icon,
   HStack,
   Text,
-  Spacer
+  Spacer,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  Checkbox,
+  Badge,
+  MenuDivider
 } from '@chakra-ui/react';
-import { SearchIcon, RepeatIcon, TimeIcon } from '@chakra-ui/icons';
+import { SearchIcon, RepeatIcon, TimeIcon, ChevronDownIcon } from '@chakra-ui/icons';
 import PieChartDisplay from '../components/dashboard/PieChartDisplay';
 import LineChartDisplay from '../components/dashboard/LineChartDisplay';
 import InfoCard from '../components/dashboard/InfoCard';
@@ -51,6 +58,9 @@ const MainDashboard = () => {
         startDateTime: '',
         endDateTime: ''
     });
+
+    // // State cho viec chon host cu the de so sanh tren bieu do
+    const [selectedChartHosts, setSelectedChartHosts] = useState([]);
 
     const isInitialLoad = useRef(true);
 
@@ -159,22 +169,22 @@ const MainDashboard = () => {
     }, [filteredReports]);
 
 
-
-
     const lineChartData = useMemo(() => {
-    
         if (!filteredStatus || filteredStatus.length === 0) return { data: [], keys: [] };
-        const activeHostnames = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
+        
+        const allActiveHostnames = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
+
+        const targetHostnames = selectedChartHosts.length > 0 
+            ? allActiveHostnames.filter(h => selectedChartHosts.includes(h))
+            : allActiveHostnames;
 
         let chartReports = reports.filter(r => {
-            if (!activeHostnames.includes(r.hostname)) return false;
+            if (!targetHostnames.includes(r.hostname)) return false;
             
-     
             if (!r.summary_stats || 
                 (r.summary_stats.raw_log_count === undefined && r.summary_stats.total_blocked_events === undefined)) {
                 return false;
             }
-
       
             if (chartFilter.startDateTime || chartFilter.endDateTime) {
                 const rTime = new Date(r.generated_time).getTime();
@@ -190,7 +200,6 @@ const MainDashboard = () => {
             return true;
         });
         
-    
         const timestampSet = new Set();
         const reportMap = new Map();
 
@@ -204,7 +213,6 @@ const MainDashboard = () => {
             reportMap.get(timestamp).push(r);
         });
 
-
         if (chartFilter.startDateTime) {
             timestampSet.add(new Date(chartFilter.startDateTime).getTime());
         }
@@ -212,12 +220,12 @@ const MainDashboard = () => {
             timestampSet.add(new Date(chartFilter.endDateTime).getTime());
         }
 
- 
         const allTimestamps = Array.from(timestampSet).sort((a, b) => a - b);
 
-        if (allTimestamps.length === 0 && activeHostnames.length > 0) return { data: [], keys: [] };
+        if (allTimestamps.length === 0 && targetHostnames.length > 0) return { data: [], keys: [] };
 
-        const lastValues = activeHostnames.reduce((acc, host) => {
+        // Khoi tao gia tri mac dinh
+        const lastValues = targetHostnames.reduce((acc, host) => {
             acc[host] = 0;
             return acc;
         }, {});
@@ -225,7 +233,6 @@ const MainDashboard = () => {
         const finalData = allTimestamps.map(ts => {
             const reportsAtTime = reportMap.get(ts) || [];
             
-     
             if (reportsAtTime.length > 0) {
                 reportsAtTime.forEach(report => {
                     let val = 0;
@@ -234,9 +241,9 @@ const MainDashboard = () => {
                     lastValues[report.hostname] = val;
                 });
             } else {
-
-                 activeHostnames.forEach(host => {
-
+                 // Reset ve 0 neu khong co report (optional: hoac giu gia tri cu neu muon dang step-chart)
+                 // O day ta reset ve 0 de the hien su vang mat cua log
+                 targetHostnames.forEach(host => {
                     lastValues[host] = 0; 
                 });
             }
@@ -245,8 +252,8 @@ const MainDashboard = () => {
             return { time: formattedTime, ...lastValues };
         });
 
-        return { data: finalData, keys: activeHostnames };
-    }, [reports, filteredStatus, chartFilter]);
+        return { data: finalData, keys: targetHostnames };
+    }, [reports, filteredStatus, chartFilter, selectedChartHosts]);
 
 
     // --- Handlers ---
@@ -257,6 +264,15 @@ const MainDashboard = () => {
     const handleResetChartFilter = () => {
         setChartFilter({ startDateTime: '', endDateTime: '' });
     };
+    
+    const toggleChartHost = (hostname) => {
+        setSelectedChartHosts(prev => {
+            if (prev.includes(hostname)) return prev.filter(h => h !== hostname);
+            return [...prev, hostname];
+        });
+    };
+
+    const clearChartHostSelection = () => setSelectedChartHosts([]);
 
     // --- Render ---
     if (loading) {
@@ -266,6 +282,9 @@ const MainDashboard = () => {
     if (error) {
         return <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>;
     }
+
+    // Lay danh sach cac host dang active de hien thi trong Menu
+    const activeHostnamesForMenu = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
 
     return (
         <VStack spacing={6} align="stretch">
@@ -317,9 +336,45 @@ const MainDashboard = () => {
                     <Heading size="md" fontWeight="normal">Log Volume Analysis</Heading>
                     <Spacer />
                     
+                    
+                    <Menu closeOnSelect={false}>
+                        <MenuButton 
+                            as={Button} 
+                            rightIcon={<ChevronDownIcon />} 
+                            variant="outline" 
+                            size="sm" 
+                            bg={cardBg}
+                            fontWeight="normal"
+                        >
+                            Compare Hosts ({selectedChartHosts.length === 0 ? 'All' : selectedChartHosts.length})
+                        </MenuButton>
+                        <MenuList zIndex={10} maxH="300px" overflowY="auto">
+                             <MenuItem onClick={clearChartHostSelection} fontSize="sm" color="blue.500">
+                                Show All
+                             </MenuItem>
+                             <MenuDivider />
+                            {activeHostnamesForMenu.map(host => (
+                                <MenuItem key={host} as={Box}>
+                                    <Checkbox 
+                                        isChecked={selectedChartHosts.includes(host)}
+                                        onChange={() => toggleChartHost(host)}
+                                        width="100%"
+                                        size="sm"
+                                    >
+                                        <Text fontSize="sm" ml={2} isTruncated maxW="200px">{host}</Text>
+                                    </Checkbox>
+                                </MenuItem>
+                            ))}
+                            {activeHostnamesForMenu.length === 0 && (
+                                <MenuItem isDisabled fontSize="sm">No active hosts</MenuItem>
+                            )}
+                        </MenuList>
+                    </Menu>
+
+                    {/* Time Filter for Chart */}
                     <HStack spacing={2} bg={cardBg} p={2} borderRadius="md" borderWidth="1px" borderColor={borderColor}>
                         <Icon as={TimeIcon} color="gray.500" />
-                        <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">Chart Filter:</Text>
+                        <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">Time Range:</Text>
                         
                         <Input 
                             type="datetime-local" 
