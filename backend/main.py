@@ -16,6 +16,7 @@ from modules import gemini_analyzer
 from modules import email_service
 from modules import report_generator
 from modules import context_loader
+from modules import utils
 
 CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
@@ -79,15 +80,11 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, api_key, syste
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
     analysis_raw = gemini_analyzer.analyze_with_gemini(host_section, logs_content, bonus_context, api_key, prompt_file, model_name)
 
-    # Parse JSON
-    summary_data = {"total_blocked_events": "N/A"}
-    analysis_markdown = analysis_raw
-    try:
-        json_match = re.search(r'```json\n(.*?)\n```', analysis_raw, re.DOTALL)
-        if json_match:
-            summary_data = json.loads(json_match.group(1))
-            analysis_markdown = analysis_raw.replace(json_match.group(0), "").strip()
-    except: pass
+    # // Parse JSON bang helper moi, on dinh hon
+    summary_data = utils.extract_json_from_text(analysis_raw) or {"total_blocked_events": "N/A"}
+    
+    # // Clean markdown de hien thi dep (xoa block json di)
+    analysis_markdown = re.sub(r'```json\s*.*?\s*```', '', analysis_raw, flags=re.DOTALL | re.IGNORECASE).strip()
 
     report_data = {
         "hostname": hostname, 
@@ -176,15 +173,11 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     result_raw = gemini_analyzer.analyze_with_gemini(host_section, content_to_analyze, bonus_context, api_key, prompt_file, model_name)
     
-    # Parse JSON
-    stats = {}
-    result_md = result_raw
-    try:
-        match = re.search(r'```json\n(.*?)\n```', result_raw, re.DOTALL)
-        if match:
-            stats = json.loads(match.group(1))
-            result_md = result_raw.replace(match.group(0), "").strip()
-    except: pass
+    # // Parse JSON bang helper moi
+    stats = utils.extract_json_from_text(result_raw)
+    
+    # // Clean markdown
+    result_md = re.sub(r'```json\s*.*?\s*```', '', result_raw, flags=re.DOTALL | re.IGNORECASE).strip()
     
     report_data = {
         "hostname": hostname, 
@@ -194,7 +187,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         "summary_stats": stats, 
         "analysis_details_markdown": result_md,
         "source_reports": reports_to_process,
-        "stage_index": current_stage_idx # // THEM STAGE INDEX
+        "stage_index": current_stage_idx
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
@@ -291,6 +284,7 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
 def main():
     while True:
         try:
+            # // dung utils.file_lock o day hoi thua vi chi doc, nhung giu an toan
             sys_conf = configparser.ConfigParser(interpolation=None); sys_conf.read(SYSTEM_SETTINGS_FILE)
             host_conf = configparser.ConfigParser(interpolation=None); host_conf.read(CONFIG_FILE)
             
