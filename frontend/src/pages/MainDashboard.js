@@ -27,7 +27,6 @@ import {
   MenuList,
   MenuItem,
   Checkbox,
-  Badge,
   MenuDivider
 } from '@chakra-ui/react';
 import { SearchIcon, RepeatIcon, TimeIcon, ChevronDownIcon } from '@chakra-ui/icons';
