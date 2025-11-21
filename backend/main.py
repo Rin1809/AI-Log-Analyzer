@@ -58,6 +58,7 @@ def resolve_api_key(raw_key, system_settings):
     """
     Giai ma key neu la profile (bat dau bang profile:).
     """
+    if not raw_key: return raw_key
     if raw_key.startswith('profile:'):
         profile_name = raw_key.split(':', 1)[1].strip()
         if system_settings.has_section('Gemini_Keys'):
@@ -102,12 +103,6 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
 def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, system_settings, test_mode=False):
     """
     Stage 0: RAW LOG ANALYSIS (Dynamic Map-Reduce)
-    Logic: 
-    - Chunk log thanh cac khoi 10k dong.
-    - Main Worker an chunk 0.
-    - Substage n an chunk n+1.
-    - Neu het chunk, cac worker thua se NGU (Sleep).
-    - Neu co nhieu worker chay, kich hoat SummarySubstage de gop ket qua.
     """
     stage_name = stage_config.get('name', 'Periodic')
     substages = stage_config.get('substages', [])
@@ -123,7 +118,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
 
     # // Tinh toan tong so dong toi da co the xu ly (Main + tat ca Substages)
-    # // Vi du: 5 worker -> (1 + 5) * 10000 = 60000 dong toi da
     total_capacity_lines = CHUNK_SIZE * (1 + len(substages))
     
     # // Doc log voi limit khong lo
@@ -144,17 +138,16 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
 
     # // Chia Log thanh cac Chunk
     log_lines = full_log_content.splitlines()
-    # // List cac chunks [chunk0, chunk1, chunk2...]
     chunks = [log_lines[i:i + CHUNK_SIZE] for i in range(0, len(log_lines), CHUNK_SIZE)]
     
     logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks of max {CHUNK_SIZE}.")
 
-    # // Chuan bi danh sach worker can chay
+
+
     active_workers_payload = []
 
-    # 1. Main Worker luon xu ly Chunk 0 (neu co)
+
     if len(chunks) > 0:
-        # Convert list lines back to string
         chunk_str = "\n".join(chunks[0])
         active_workers_payload.append({
             "config": {
@@ -166,8 +159,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
             "content": chunk_str
         })
 
-    # 2. Map Chunk 1..N vao Substage 0..N
-    # Chi kich hoat substage neu con chunk
+
     for i in range(1, len(chunks)):
         sub_idx = i - 1
         if sub_idx < len(substages):
@@ -179,16 +171,13 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                     "content": chunk_str
                 })
         else:
-            # Log nhieu hon so luong worker -> Chunk cuoi cung se bi bo qua hoac nhet vao worker cuoi?
-            # O day ta chap nhan bo qua de dam bao performance, hoac nhet vao worker cuoi cung
-            # Logic hien tai: Bo qua, logreader da warning.
-            pass
+            pass # Drop excess chunks
 
     if not active_workers_payload:
         logging.warning(f"[{host_section}] No chunks to process (Strange state).")
         return False
 
-    logging.info(f"[{host_section}] >>> Parallel Activation: {len(active_workers_payload)} workers active. ({len(substages) + 1 - len(active_workers_payload)} sleeping).")
+    logging.info(f"[{host_section}] >>> Parallel Activation: {len(active_workers_payload)} workers active.")
 
     # // Chay Song Song
     aggregated_results = []
@@ -218,50 +207,55 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                 failed_workers.append(w_name)
 
     if failed_workers:
-        logging.error(f"[{host_section}] Critical: One or more workers failed. Aborting to prevent partial data report.")
+        logging.error(f"[{host_section}] Critical: One or more workers failed. Aborting.")
         return False
 
     # --- REDUCE STEP (SUMMARY SUBSTAGE) ---
-    # Logic: Neu > 1 worker chay, ta phai goi AI de gop ket qua.
-    # Neu chi co 1 worker, dung luon ket qua do.
-    
     final_markdown = ""
     final_stats = {}
     
     if len(aggregated_results) == 1:
-        # Case simple: Chi co Main Worker
+        # Case simple: Chi co Main Worker, dung ket qua luon
         raw_text = aggregated_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     else:
-        # Case Map-Reduce: Can chay SummarySubstage
+
         logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce) for {len(aggregated_results)} outputs...")
         
         # Gop text dau vao
         combined_inputs = []
         for res in aggregated_results:
             combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
-        
         full_combined_text = "\n\n".join(combined_inputs)
 
-        summary_prompt_file = os.path.join(prompt_dir, 'summary_prompt_template.md')
+
+        summary_conf = stage_config.get('summary_conf', {})
         
-        # Dung model cua Main Worker de chay summary
-        reduce_model = stage_config.get('model')
+        reduce_model = summary_conf.get('model') or stage_config.get('model')
+        reduce_prompt_file_name = summary_conf.get('prompt_file') or 'summary_prompt_template.md'
+        reduce_prompt_file = os.path.join(prompt_dir, reduce_prompt_file_name)
         
+        # Resolve API Key for Reduce Step
+        reduce_key_raw = summary_conf.get('gemini_api_key')
+        if not reduce_key_raw:
+             # Fallback to Main Host Key
+             reduce_key_raw = host_config.get(host_section, 'GeminiAPIKey')
+        
+        reduce_api_key = resolve_api_key(reduce_key_raw, system_settings)
+
         # Goi AI Reduce
         reduce_result = gemini_analyzer.analyze_with_gemini(
             f"{host_section}_SummarySubstage",
             full_combined_text,
             bonus_context,
-            main_api_key,
-            summary_prompt_file,
+            reduce_api_key,
+            reduce_prompt_file,
             reduce_model
         )
         
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
             logging.error(f"[{host_section}] SummarySubstage Failed. Fallback to concatenation.")
-
             final_stats = {"total_blocked_events": 0, "alerts_count": 0, "fallback": True}
             final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n"
             for res in aggregated_results:
@@ -270,7 +264,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
             
-
             if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
                 final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
             if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
@@ -297,7 +290,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     logging.info(f"[{host_section}] State committed. Log pointer updated to {candidate_timestamp}")
 
-    # Send Email (Non-blocking)
+    # Send Email
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -307,7 +300,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                 tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
                 
-                # // an so do mang neu khong co
                 diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
                 if not diag or not os.path.exists(diag):
                      tpl = tpl.replace('id="network-diagram-card"', 'id="network-diagram-card" style="display: none;"')
@@ -454,7 +446,6 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
     raw_api_key = host_config.get(host_section, 'GeminiAPIKey', fallback='')
     if not raw_api_key or "YOUR_API_KEY" in raw_api_key: return
 
-    # // Resolve API Key (check if it's a profile)
     api_key = resolve_api_key(raw_api_key, system_settings)
 
     now = datetime.now()

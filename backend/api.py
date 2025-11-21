@@ -60,7 +60,12 @@ class PipelineSubStage(BaseModel):
     enabled: bool = True
     model: str
     prompt_file: str
-    gemini_api_key: Optional[str] = "" # API Key rieng cho worker nay
+    gemini_api_key: Optional[str] = ""
+
+class PipelineSummaryConf(BaseModel):
+    model: Optional[str] = None
+    prompt_file: Optional[str] = None
+    gemini_api_key: Optional[str] = ""
 
 class PipelineStage(BaseModel):
     name: str
@@ -69,7 +74,8 @@ class PipelineStage(BaseModel):
     prompt_file: str
     recipient_emails: str = ""
     trigger_threshold: int = 1
-    substages: List[PipelineSubStage] = [] # Support parallel workers for Stage 0
+    substages: List[PipelineSubStage] = [] 
+    summary_conf: Optional[PipelineSummaryConf] = None 
 
 class HostStatus(BaseModel):
     id: str
@@ -270,10 +276,6 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                     except Exception as e:
                         logging.error(f"Failed to rename host dir: {e}")
                 current_report_dir = new_report_dir 
-
-
-
-
 
             old_enabled = config.get(host_id, 'enabled', fallback='True')
             

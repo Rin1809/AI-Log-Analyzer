@@ -19,11 +19,6 @@ import PromptManager from '../components/hosts/PromptManager';
 import ApiKeySelector from '../components/hosts/ApiKeySelector'; 
 import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
 
-
-
-
-
-
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
     const { hostId } = useParams();
@@ -84,7 +79,8 @@ const HostFormPage = () => {
             prompt_file: pipeline.length === 0 ? 'prompt_template.md' : 'summary_prompt_template.md',
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
             recipient_emails: '',
-            substages: [] // Init substages for Stage 0
+            substages: [], // Init substages for Stage 0
+            summary_conf: {} // Init summary config
         };
         setPipeline([...pipeline, newStage]);
     };
@@ -138,6 +134,13 @@ const HostFormPage = () => {
          newP[stageIdx].substages[subIdx] = { ...newP[stageIdx].substages[subIdx], [field]: value };
          setPipeline(newP);
     };
+    
+    const handleUpdateSummaryConf = (stageIdx, field, value) => {
+        const newP = [...pipeline];
+        if (!newP[stageIdx].summary_conf) newP[stageIdx].summary_conf = {};
+        newP[stageIdx].summary_conf = { ...newP[stageIdx].summary_conf, [field]: value };
+        setPipeline(newP);
+    };
 
 
     // --- Fetch Data ---
@@ -172,7 +175,7 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, substages: [] },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, substages: [], summary_conf: {} },
             { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24 },
         ];
     }
@@ -434,8 +437,8 @@ const HostFormPage = () => {
                             <VStack spacing={4} align="stretch">
                                 {pipeline.map((stage, idx) => (
                                     <Box key={idx} borderWidth="1px" borderRadius="md" p={3} position="relative" _hover={{ borderColor: "blue.300", boxShadow: "sm" }}>
-                                        <Flex justify="space-between" mb={2} align="center">
-                                            <HStack>
+                                        <Flex justify="space-between" mb={2} align="center" wrap="wrap" gap={2}>
+                                            <HStack flex="1" minW="0">
                                                 <Badge 
                                                     colorScheme={idx === 0 ? "blue" : "purple"} 
                                                     variant="subtle" 
@@ -444,13 +447,23 @@ const HostFormPage = () => {
                                                     px={2} 
                                                     py={1}
                                                     borderRadius="full"
+                                                    flexShrink={0}
                                                 >
                                                     {idx === 0 ? "#0 Source" : `#${idx} Aggregation`}
                                                 </Badge>
                                                 
-                                                <Input size="sm" value={stage.name} onChange={e=>updateStage(idx, 'name', e.target.value)} w="180px" fontWeight="normal" variant="unstyled" />
+                                                <Input 
+                                                    size="sm" 
+                                                    value={stage.name} 
+                                                    onChange={e=>updateStage(idx, 'name', e.target.value)} 
+                                                    w="auto"
+                                                    flex="1"
+                                                    minW="100px"
+                                                    fontWeight="normal" 
+                                                    variant="unstyled" 
+                                                />
                                             </HStack>
-                                            <HStack spacing={1}>
+                                            <HStack spacing={1} flexShrink={0}>
                                                 <IconButton size="xs" icon={<ArrowUpIcon />} isDisabled={idx===0} onClick={()=>moveStage(idx, -1)} variant="ghost"/>
                                                 <IconButton size="xs" icon={<ArrowDownIcon />} isDisabled={idx===pipeline.length-1} onClick={()=>moveStage(idx, 1)} variant="ghost"/>
                                                 
@@ -507,9 +520,11 @@ const HostFormPage = () => {
                                                 </Text>
                                                 <MapReduceEditor 
                                                     substages={stage.substages}
+                                                    summaryConf={stage.summary_conf}
                                                     onAdd={() => handleAddSubstage(idx)}
                                                     onRemove={(subIdx) => handleRemoveSubstage(idx, subIdx)}
                                                     onUpdate={(subIdx, f, v) => handleUpdateSubstage(idx, subIdx, f, v)}
+                                                    onUpdateSummary={(f, v) => handleUpdateSummaryConf(idx, f, v)}
                                                     geminiModels={geminiModels}
                                                     isTestMode={isTestMode}
                                                 />
