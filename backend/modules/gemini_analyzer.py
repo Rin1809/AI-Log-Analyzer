@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+import threading
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from modules import state_manager
@@ -9,8 +10,17 @@ from modules import state_manager
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 2
 
+# // Lock toan cuc cho che do Legacy (thu vien cu)
+# // Giup tranh race condition khi genai.configure() la global state
+_LEGACY_GLOBAL_LOCK = threading.Lock()
+
 def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, model_name):
-    """Gui yeu cau phan tich toi Gemini voi co che Retry."""
+    """
+    Gui yeu cau phan tich toi Gemini.
+    Ho tro ca:
+    1. Modern Mode (genai.Client): Thread-safe, Parallel (Yeu cau google-generativeai >= 0.8.3)
+    2. Legacy Mode (genai.GenerativeModel): Serialized via Lock (Chay cham hon nhung an toan cho ban cu)
+    """
     if not content or not content.strip():
         logging.warning(f"[{host_id}] Noi dung trong, bo qua phan tich.")
         return "Không có dữ liệu nào để phân tích trong khoảng thời gian được chọn."
@@ -21,8 +31,6 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
     except FileNotFoundError:
         logging.error(f"[{host_id}] Loi: Khong tim thay file template '{prompt_file}'.")
         return f"Lỗi hệ thống: Không tìm thấy file '{prompt_file}'."
-
-    genai.configure(api_key=api_key)
 
     prompt_filename = os.path.basename(prompt_file).lower()
     is_summary_or_final = 'summary' in prompt_filename
@@ -36,46 +44,81 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
         logging.error(f"[{host_id}] Loi placeholder trong prompt '{prompt_file}'. Chi tiet: {e}")
         return f"Lỗi cấu hình: Placeholder không đúng trong file prompt '{prompt_file}'."
 
-    safety_settings = {
+    # // Kiem tra xem co phai ban moi (ho tro Client) hay khong
+    has_client_support = hasattr(genai, 'Client')
+    
+    # // Safety settings (Format chung cho ca 2 phien ban tuong doi on dinh)
+    # // Ban cu dung Dict, ban moi dung List Dict. Ta dung List Dict vi ban cu van hieu duoc trong 1 so truong hop, 
+    # // hoac convert nhe o duoi
+    safety_settings_modern = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+    ]
+    
+    # // Map cho ban cu qua (neu can)
+    safety_settings_legacy = {
         'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
         'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
         'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
         'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'
     }
 
-    logging.info(f"[{host_id}] Su dung Gemini model: '{model_name}'")
+    logging.info(f"[{host_id}] Su dung Gemini model: '{model_name}' (Mode: {'Modern/Parallel' if has_client_support else 'Legacy/Serialized'})")
 
-    # // vong lap retry logic
     for attempt in range(MAX_RETRIES):
         try:
             if attempt > 0:
                 logging.info(f"[{host_id}] Retry attempt {attempt+1}/{MAX_RETRIES}...")
 
-            model = genai.GenerativeModel(model_name)
-            request_options = {"timeout": 420}
+            text_response = ""
 
-            # // Tang counter API call truoc khi goi (hoac sau khi goi thanh cong)
-            # // O day ta tang ngay khi goi de track usage thuc te
-            state_manager.increment_total_api_calls()
-
-            response = model.generate_content(
-                prompt,
-                request_options=request_options,
-                safety_settings=safety_settings
-            )
-
-            if not response.parts:
-                finish_reason = "UNKNOWN"
-                if response.candidates and response.candidates[0].finish_reason:
-                    finish_reason = response.candidates[0].finish_reason.name
+            if has_client_support:
+                # --- MODERN MODE (THREAD SAFE) ---
+                from google.generativeai import types
+                client = genai.Client(api_key=api_key)
+                state_manager.increment_total_api_calls()
                 
-                # // neu bi block thi ko retry lam gi
-                error_message = f"Gemini blocked response. Reason: {finish_reason}"
-                logging.error(f"[{host_id}] {error_message}")
-                return error_message
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(safety_settings=safety_settings_modern)
+                )
+                
+                if not response.text:
+                     finish_reason = "UNKNOWN"
+                     if response.candidates and response.candidates[0].finish_reason:
+                        finish_reason = response.candidates[0].finish_reason.name
+                     return f"Gemini blocked response. Reason: {finish_reason}"
+                
+                text_response = response.text
+
+            else:
+                # --- LEGACY MODE (LOCKED) ---
+                # // Phai dung Lock de tranh Race Condition khi set api_key global
+                with _LEGACY_GLOBAL_LOCK:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel(model_name)
+                    state_manager.increment_total_api_calls()
+                    
+                    response = model.generate_content(
+                        prompt,
+                        safety_settings=safety_settings_legacy
+                    )
+                    
+                    if not response.parts:
+                        # // Thu catch loi block cua ban cu
+                        try:
+                            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                                return f"Gemini blocked response. Reason: {response.prompt_feedback.block_reason}"
+                        except: pass
+                        return "Gemini blocked response (Empty response)."
+
+                    text_response = response.text
 
             logging.info(f"[{host_id}] Nhan phan tich tu Gemini thanh cong.")
-            return response.text
+            return text_response
 
         except google_exceptions.ResourceExhausted:
             wait_time = INITIAL_BACKOFF * (10 ** attempt)
@@ -88,7 +131,6 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
             time.sleep(wait_time)
             
         except Exception as e:
-            # // loi fatal nhu sai api key thi thoi dung retry
             logging.error(f"[{host_id}] Fatal Gemini Error: {e}")
             return f"Đã xảy ra lỗi không thể phục hồi khi gọi Gemini: {e}"
 

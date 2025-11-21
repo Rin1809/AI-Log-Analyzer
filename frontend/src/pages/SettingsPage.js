@@ -36,7 +36,7 @@ import {
   Wrap,
   WrapItem
 } from '@chakra-ui/react';
-import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon, StarIcon} from '@chakra-ui/icons';
+import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon, StarIcon, InfoIcon} from '@chakra-ui/icons';
 import SmtpProfileModal from '../components/settings/SmtpProfileModal';
 import ApiKeyManagerModal from '../components/hosts/ApiKeyManagerModal'; 
 import { useLanguage } from '../context/LanguageContext';
@@ -57,6 +57,11 @@ const SettingsCard = ({ title, children, actions }) => {
   );
 };
 
+// Helper to convert snake_case to camelCase
+const toCamelCase = (str) => {
+    return str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+};
+
 const SettingsPage = () => {
   const { isTestMode, setIsTestMode } = useOutletContext();
   const { t } = useLanguage();
@@ -64,6 +69,7 @@ const SettingsPage = () => {
     report_directory: '',
     prompt_directory: '',
     context_directory: '',
+    logo_path: '', // Added
     smtp_profiles: {},
     active_smtp_profile: '',
     attach_context_files: false,
@@ -96,6 +102,7 @@ const SettingsPage = () => {
         report_directory: data.report_directory || '',
         prompt_directory: data.prompt_directory || '',
         context_directory: data.context_directory || '',
+        logo_path: data.logo_path || '', // Added
         smtp_profiles: data.smtp_profiles || {},
         active_smtp_profile: data.active_smtp_profile || '',
         attach_context_files: data.attach_context_files || false,
@@ -185,11 +192,11 @@ const SettingsPage = () => {
       <Grid templateColumns={{ base: '1fr', lg: 'repeat(2, 1fr)' }} gap={6}>
         <GridItem>
           <SettingsCard title={t('defaultPaths')}>
-            {['report_directory', 'prompt_directory', 'context_directory'].map(key => (
+            {['report_directory', 'prompt_directory', 'context_directory', 'logo_path'].map(key => (
               <FormControl key={key}>
-                <FormLabel fontSize="sm" textTransform="capitalize">{t(key.replace('_', 'Directory').replace('directory', 'Directory')) || key}</FormLabel>
+                <FormLabel fontSize="sm">{t(toCamelCase(key)) || key}</FormLabel>
                 <InputGroup>
-                  <InputLeftElement pointerEvents="none"><Icon as={AttachmentIcon} color="gray.500" /></InputLeftElement>
+                  <InputLeftElement pointerEvents="none"><Icon as={key === 'logo_path' ? InfoIcon : AttachmentIcon} color="gray.500" /></InputLeftElement>
                   <Input name={key} value={settings[key] || ''} onChange={handleInputChange} isDisabled={loading || !!error || isSaving} />
                 </InputGroup>
               </FormControl>
@@ -219,7 +226,7 @@ const SettingsPage = () => {
               <FormControl display="flex" alignItems="center" justifyContent="space-between">
                 <Box>
                   <FormLabel htmlFor="attach-files-switch" mb="0" fontSize="sm">{t('attachContextFiles')}</FormLabel>
-                  <Text fontSize="xs" color="gray.500">Attach context files to periodic emails.</Text>
+                  <Text fontSize="xs" color="gray.500">{t('attachContextFilesDesc')}</Text>
                 </Box>
                 <Switch id="attach-files-switch" colorScheme="blue" name="attach_context_files" isChecked={settings.attach_context_files} onChange={handleInputChange} />
               </FormControl>
@@ -246,7 +253,7 @@ const SettingsPage = () => {
                     )}
                 </Wrap>
                 <Text fontSize="xs" color="gray.400" mt={2}>
-                    Manage API keys centrally. Select a profile when configuring a host.
+                    {t('manageKeysDesc')}
                 </Text>
             </SettingsCard>
         </GridItem>
@@ -277,7 +284,7 @@ const SettingsPage = () => {
                     <FormControl display="flex" alignItems="center" justifyContent="space-between">
                         <Box>
                             <FormLabel htmlFor="test-mode-switch" mb="0">{t('testMode')}</FormLabel>
-                            <Text fontSize="xs" color="gray.500">Use test configuration and assets.</Text>
+                            <Text fontSize="xs" color="gray.500">{t('testModeDesc')}</Text>
                         </Box>
                         <Switch id="test-mode-switch" colorScheme="blue" isChecked={isTestMode} onChange={(e) => setIsTestMode(e.target.checked)} />
                     </FormControl>

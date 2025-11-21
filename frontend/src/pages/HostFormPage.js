@@ -353,7 +353,8 @@ const HostFormPage = () => {
                                         <Input value={basicInfo.timezone} onChange={e=>setBasicInfo({...basicInfo, timezone: e.target.value})}/>
                                     </FormControl>
                                     <FormControl><FormLabel>{t('intervalSec')}</FormLabel>
-                                        <NumberInput value={basicInfo.run_interval_seconds} onChange={(_, v)=>setBasicInfo({...basicInfo, run_interval_seconds: v})}>
+                                        {/* FIX: Use valString (first arg) to allow empty input without NaN */}
+                                        <NumberInput value={basicInfo.run_interval_seconds} onChange={(valStr) => setBasicInfo({...basicInfo, run_interval_seconds: valStr})}>
                                             <NumberInputField /><NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
                                         </NumberInput>
                                     </FormControl>
@@ -521,7 +522,8 @@ const HostFormPage = () => {
                                             {idx === 0 ? (
                                                 <FormControl>
                                                     <FormLabel fontSize="xs" mb={0} color="gray.500">{t('chunkSize')}</FormLabel>
-                                                    <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size || 8000} onChange={(_, v)=>setBasicInfo({...basicInfo, chunk_size: v})}>
+                                                    {/* FIX: Use valString (first arg) to allow empty input without NaN */}
+                                                    <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size} onChange={(valStr) => setBasicInfo({...basicInfo, chunk_size: valStr})}>
                                                         <NumberInputField />
                                                         <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
                                                     </NumberInput>

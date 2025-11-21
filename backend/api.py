@@ -31,7 +31,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="5.0.1")
+app = FastAPI(title="AI-log-analyzer API", version="5.0.2")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -77,6 +77,7 @@ class PipelineStage(BaseModel):
     trigger_threshold: int = 1
     substages: List[PipelineSubStage] = [] 
     summary_conf: Optional[PipelineSummaryConf] = None 
+    gemini_api_key: Optional[str] = "" 
 
 class HostStatus(BaseModel):
     id: str
@@ -106,6 +107,7 @@ class SystemSettings(BaseModel):
     report_directory: Optional[str] = ''
     prompt_directory: Optional[str] = ''
     context_directory: Optional[str] = ''
+    logo_path: Optional[str] = '' # New Field
     smtp_profiles: Dict[str, SmtpProfile] = {}
     active_smtp_profile: Optional[str] = None
     attach_context_files: bool = False
@@ -124,7 +126,7 @@ class HostConfig(BaseModel):
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
     pipeline: List[PipelineStage] = []
-    enabled: bool = True # // Add enabled field
+    enabled: bool = True 
 
     @field_validator('syshostname')
     @classmethod
@@ -174,12 +176,6 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
 
 @app.get("/api/dashboard-stats", response_model=Dict[str, int])
 async def get_dashboard_stats(test_mode: bool = False):
-    """
-    Tra ve thong ke tong hop cho Dashboard.
-    - total_raw_logs: Tong so dong log tu cac file log cua cac host (chi lay file active).
-    - total_analyzed_logs: Tong so log da xu ly (cong don tu report).
-    - total_api_calls: Tong so lan goi Gemini API.
-    """
     config = configparser.ConfigParser(interpolation=None)
     config.read(get_active_config_file(test_mode), encoding='utf-8')
     
@@ -189,7 +185,6 @@ async def get_dashboard_stats(test_mode: bool = False):
     total_raw = 0
     total_analyzed = 0
     
-
     for section in config.sections():
         if section.startswith(('Firewall_', 'Host_')):
             if config.getboolean(section, 'enabled', fallback=True):
@@ -204,12 +199,10 @@ async def get_dashboard_stats(test_mode: bool = False):
             try:
                 with open(r_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # // Chi cong don report cua Stage 0 (raw log analysis) de tranh double count
                     if data.get('stage_index') == 0:
                         count = data.get('raw_log_count', 0)
                         total_analyzed += int(count) if count else 0
             except: pass
-
 
     total_api = state_manager.get_total_api_calls(test_mode)
 
@@ -288,7 +281,6 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
             pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
             config.set(host_id, 'pipeline_config', pipeline_json)
             
-            # // Allow setting enabled status on create
             config.set(host_id, 'enabled', str(host_config.enabled))
             
             with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
@@ -328,14 +320,10 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                     except Exception as e:
                         logging.error(f"Failed to rename host dir: {e}")
                 current_report_dir = new_report_dir 
-
-            # // FIX: Update enabled status based on request, NOT old config
-            # old_enabled = config.get(host_id, 'enabled', fallback='True') <--- Removed this line
             
             config.remove_section(host_id)
             config.add_section(new_host_id)
             
-            # // Set enabled from request
             config.set(new_host_id, 'enabled', str(host_config.enabled))
             
             for key, value in host_config.model_dump(exclude={'context_files', 'pipeline', 'enabled'}).items():
@@ -402,7 +390,6 @@ async def delete_context_file(filename: str, test_mode: bool = False):
     sys_config = get_system_config_parser(test_mode)
     context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
     
-    # // FIX: Join path truoc khi verify de tranh path traversal error
     full_path = os.path.join(context_dir, filename)
     try:
         safe_path = verify_safe_path(context_dir, full_path)
@@ -426,7 +413,6 @@ async def list_prompts(test_mode: bool = False):
 @app.get("/api/prompts/{filename}")
 async def get_prompt_content(filename: str, test_mode: bool = False):
     prompt_dir = get_prompts_dir(test_mode)
-    # // FIX: Join path truoc khi verify de tranh path traversal error
     full_path = os.path.join(prompt_dir, filename)
     try:
         safe_path = verify_safe_path(prompt_dir, full_path)
@@ -449,7 +435,6 @@ async def save_prompt(prompt: PromptFile, test_mode: bool = False):
     safe_name = os.path.basename(prompt.filename)
     if not safe_name.endswith('.md'): safe_name += '.md'
     
-    # // FIX: Join path truoc khi verify de tranh path traversal error
     full_path = os.path.join(prompt_dir, safe_name)
     try:
         safe_path = verify_safe_path(prompt_dir, full_path)
@@ -466,7 +451,6 @@ async def save_prompt(prompt: PromptFile, test_mode: bool = False):
 @app.delete("/api/prompts/{filename}")
 async def delete_prompt(filename: str, test_mode: bool = False):
     prompt_dir = get_prompts_dir(test_mode)
-    # // FIX: Join path truoc khi verify de tranh path traversal error
     full_path = os.path.join(prompt_dir, filename)
     try:
         file_path = verify_safe_path(prompt_dir, full_path)
@@ -533,13 +517,10 @@ async def get_report_content(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
     
-   
     full_path = os.path.join(base_report_dir, path)
     try:
         safe_path = verify_safe_path(base_report_dir, full_path)
     except (ValueError, PermissionError):
-
-
         try:
              safe_path = verify_safe_path(base_report_dir, path)
         except:
@@ -552,14 +533,11 @@ async def get_report_content(path: str, test_mode: bool = False):
 async def delete_report(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
-    
-
 
     full_path = os.path.join(base_report_dir, path)
     try:
         safe_path = verify_safe_path(base_report_dir, full_path)
     except:
-        # Fallback
         try:
             safe_path = verify_safe_path(base_report_dir, path)
         except:
@@ -576,7 +554,6 @@ async def delete_report(path: str, test_mode: bool = False):
 async def download_report(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
-    
 
     full_path = os.path.join(base_report_dir, path)
     try:
@@ -594,7 +571,6 @@ async def download_report(path: str, test_mode: bool = False):
 async def preview_report_email(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
-    
 
     full_path = os.path.join(base_report_dir, path)
     try:
@@ -677,6 +653,7 @@ async def get_settings(test_mode: bool = False):
         settings.report_directory = s.get('report_directory', '')
         settings.prompt_directory = s.get('prompt_directory', '')
         settings.context_directory = s.get('context_directory', '')
+        settings.logo_path = s.get('logo_path', '') # Added
         settings.active_smtp_profile = s.get('active_smtp_profile')
         settings.attach_context_files = s.getboolean('attach_context_files', False)
         settings.scheduler_check_interval_seconds = s.getint('scheduler_check_interval_seconds', 60)
@@ -691,7 +668,6 @@ async def get_settings(test_mode: bool = False):
             )
     settings.smtp_profiles = profiles
     
-    # // Load Gemini Profiles
     gemini_profiles = {}
     if conf.has_section('Gemini_Keys'):
         for name, key in conf.items('Gemini_Keys'):
@@ -708,7 +684,6 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
         with file_lock(path):
             conf = get_system_config_parser(test_mode)
             
-            # // Xoa cac section cu de ghi moi (clean slate)
             for s in conf.sections(): 
                 if s.startswith('Email_'): conf.remove_section(s)
                 
@@ -717,6 +692,7 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
             sys['report_directory'] = settings.report_directory
             sys['prompt_directory'] = settings.prompt_directory
             sys['context_directory'] = settings.context_directory
+            sys['logo_path'] = settings.logo_path or '' # Added
             sys['active_smtp_profile'] = settings.active_smtp_profile or ''
             sys['attach_context_files'] = str(settings.attach_context_files)
             sys['scheduler_check_interval_seconds'] = str(settings.scheduler_check_interval_seconds)
@@ -729,9 +705,7 @@ async def save_settings(settings: SystemSettings, test_mode: bool = False):
                 conf[sec]['sender_email'] = prof.sender_email
                 conf[sec]['sender_password'] = prof.sender_password
             
-            # // Ghi Gemini Profiles
             if 'Gemini_Keys' not in conf: conf.add_section('Gemini_Keys')
-            # Xoa key cu
             conf.remove_section('Gemini_Keys')
             conf.add_section('Gemini_Keys')
             

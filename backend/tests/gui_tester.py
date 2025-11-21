@@ -16,7 +16,8 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.append(BACKEND_DIR)
 
-from main import run_pipeline_stage_0, run_pipeline_stage_n
+# // Import resolve_api_key to fix profile key issues
+from main import run_pipeline_stage_0, run_pipeline_stage_n, resolve_api_key
 from modules import state_manager, utils
 
 # --- CONSTANTS ---
@@ -229,6 +230,9 @@ class LogAnalyzerTesterApp:
     def _suite_worker(self, hosts):
         if self.clean_env_var.get():
             self.clean_environment()
+            
+        # RE-READ CONFIG TO GET LATEST SETTINGS
+        self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
 
         total = len(hosts)
         passed = 0
@@ -256,7 +260,10 @@ class LogAnalyzerTesterApp:
                 logging.warning(f"Empty pipeline for {host}")
                 continue
 
-            api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+            raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+            # // Resolve key de xu ly truong hop profile:XXX
+            api_key = resolve_api_key(raw_api_key, self.sys_config)
+
             host_failed = False
 
             # 1. RUN STAGE 0
@@ -345,15 +352,20 @@ class LogAnalyzerTesterApp:
     def run_manual_stage(self, idx):
         host = self.selected_host.get()
         if not host: return
+
+        # RELOAD CONFIG HERE to catch GUI changes
+        self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
         
-        # (Logic run stage 0 giong code cu, copy lai cho gon)
         pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))
         if idx >= len(pipeline): return
+        
+        raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+        api_key = resolve_api_key(raw_api_key, self.sys_config)
         
         def _run():
             try:
                 run_pipeline_stage_0(self.config, host, pipeline[idx], 
-                                   self.config.get(host, 'GeminiAPIKey'), self.sys_config, test_mode=True)
+                                   api_key, self.sys_config, test_mode=True)
                 logging.info("Manual Stage 0 Done.")
             except Exception as e: logging.error(f"Error: {e}")
         threading.Thread(target=_run).start()
@@ -364,8 +376,14 @@ class LogAnalyzerTesterApp:
         try: idx = int(self.stage_n_var.get())
         except: return
         
+        # RELOAD CONFIG HERE
+        self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
+
         pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))
         if idx >= len(pipeline) or idx < 1: return
+        
+        raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+        api_key = resolve_api_key(raw_api_key, self.sys_config)
         
         if self.force_trigger_var.get():
             threshold = int(pipeline[idx].get('trigger_threshold', 1))
@@ -374,7 +392,7 @@ class LogAnalyzerTesterApp:
 
         def _run():
             run_pipeline_stage_n(self.config, host, idx, pipeline[idx], pipeline[idx-1],
-                               self.config.get(host, 'GeminiAPIKey'), self.sys_config, test_mode=True)
+                               api_key, self.sys_config, test_mode=True)
             logging.info(f"Manual Stage {idx} Done.")
         threading.Thread(target=_run).start()
 

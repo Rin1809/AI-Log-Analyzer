@@ -11,10 +11,8 @@ import {
   MenuButton,
   MenuList,
   MenuItem,
-  IconButton,
-  Text,
-  useColorModeValue,
-  Tooltip
+  IconButton
+
 } from '@chakra-ui/react';
 import { 
     ViewIcon, 
