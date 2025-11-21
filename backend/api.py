@@ -19,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules import state_manager
 from modules.report_generator import slugify
 from modules.utils import file_lock, verify_safe_path
+from modules.log_reader import count_file_lines
 
 # --- config ---
 CONFIG_FILE = "config.ini"
@@ -170,6 +171,53 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     return config_dict
 
 # --- API Endpoints ---
+
+@app.get("/api/dashboard-stats", response_model=Dict[str, int])
+async def get_dashboard_stats(test_mode: bool = False):
+    """
+    Tra ve thong ke tong hop cho Dashboard.
+    - total_raw_logs: Tong so dong log tu cac file log cua cac host (chi lay file active).
+    - total_analyzed_logs: Tong so log da xu ly (cong don tu report).
+    - total_api_calls: Tong so lan goi Gemini API.
+    """
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(get_active_config_file(test_mode), encoding='utf-8')
+    
+    system_settings = get_system_config_parser(test_mode)
+    report_dir = system_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
+
+    total_raw = 0
+    total_analyzed = 0
+    
+
+    for section in config.sections():
+        if section.startswith(('Firewall_', 'Host_')):
+            if config.getboolean(section, 'enabled', fallback=True):
+                log_file = config.get(section, 'LogFile', fallback='')
+                if log_file and os.path.exists(log_file):
+                    total_raw += count_file_lines(log_file)
+
+
+    if os.path.isdir(report_dir):
+        report_files = glob.glob(os.path.join(report_dir, '*', '**', '*.json'), recursive=True)
+        for r_path in report_files:
+            try:
+                with open(r_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # // Chi cong don report cua Stage 0 (raw log analysis) de tranh double count
+                    if data.get('stage_index') == 0:
+                        count = data.get('raw_log_count', 0)
+                        total_analyzed += int(count) if count else 0
+            except: pass
+
+
+    total_api = state_manager.get_total_api_calls(test_mode)
+
+    return {
+        "total_raw_logs": total_raw,
+        "total_analyzed_logs": total_analyzed,
+        "total_api_calls": total_api
+    }
 
 @app.get("/api/status", response_model=List[HostStatus])
 async def get_host_status(test_mode: bool = False):

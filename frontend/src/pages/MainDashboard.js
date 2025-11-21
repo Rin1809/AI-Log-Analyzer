@@ -33,6 +33,7 @@ import { SearchIcon, RepeatIcon, TimeIcon, ChevronDownIcon } from '@chakra-ui/ic
 import PieChartDisplay from '../components/dashboard/PieChartDisplay';
 import LineChartDisplay from '../components/dashboard/LineChartDisplay';
 import InfoCard from '../components/dashboard/InfoCard';
+import StatPanel from '../components/dashboard/StatPanel';
 
 const POLLING_INTERVAL = 30000;
 
@@ -42,6 +43,7 @@ const MainDashboard = () => {
     // --- Data State ---
     const [statusData, setStatusData] = useState([]);
     const [reports, setReports] = useState([]);
+    const [dashboardStats, setDashboardStats] = useState({ total_raw_logs: 0, total_analyzed_logs: 0, total_api_calls: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     
@@ -75,12 +77,14 @@ const MainDashboard = () => {
         setError('');
         try {
             const apiParams = { params: { test_mode: testMode } };
-            const [statusRes, reportsRes] = await Promise.all([
+            const [statusRes, reportsRes, statsRes] = await Promise.all([
                 axios.get('/api/status', apiParams),
-                axios.get('/api/reports', apiParams)
+                axios.get('/api/reports', apiParams),
+                axios.get('/api/dashboard-stats', apiParams)
             ]);
             setStatusData(statusRes.data);
             setReports(reportsRes.data);
+            setDashboardStats(statsRes.data);
         } catch (err) {
             console.error(err);
             setError(`Failed to fetch dashboard data. Details: ${err.message}`);
@@ -287,6 +291,9 @@ const MainDashboard = () => {
 
     return (
         <VStack spacing={6} align="stretch">
+            {/* // New Stat Panel */}
+            <StatPanel stats={dashboardStats} />
+
             <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={filterBg} shadow="sm">
                 <Flex direction={{ base: 'column', lg: 'row' }} gap={4} align={{ base: 'stretch', lg: 'flex-end' }}>
                     <FormControl flex="1">

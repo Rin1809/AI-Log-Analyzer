@@ -7,6 +7,27 @@ from modules import state_manager
 # // Gioi han so dong log mac dinh xu ly mot lan
 DEFAULT_MAX_LOG_LINES = 10000 
 
+def count_file_lines(file_path):
+    """
+    Dem so dong cua file mot cach toi uu (block reading).
+    Dung cho viec thong ke Dashboard.
+    """
+    if not os.path.exists(file_path):
+        return 0
+    try:
+        lines = 0
+        buf_size = 1024 * 1024
+        with open(file_path, 'rb') as f:
+            read_f = f.read
+            buf = read_f(buf_size)
+            while buf:
+                lines += buf.count(b'\n')
+                buf = read_f(buf_size)
+        return lines
+    except Exception as e:
+        logging.error(f"Error counting lines for {file_path}: {e}")
+        return 0
+
 def try_parse_timestamp_flexible(line, current_year, tz):
 
     line = line.strip()

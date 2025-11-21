@@ -1,6 +1,7 @@
 import os
 import shutil
 from datetime import datetime
+from modules import utils
 
 # Dinh nghia duong dan luu state
 MAIN_STATE_DIR = os.path.join('states', 'main')
@@ -64,6 +65,36 @@ def save_stage_buffer_count(host_id, stage_index, count, test_mode=False):
     file_path = _get_state_file_path(f"buffer_count_{host_id}_{stage_index}", test_mode)
     with open(file_path, 'w') as f:
         f.write(str(count))
+
+def increment_total_api_calls(test_mode=False):
+    """Tang so dem API call len 1."""
+    file_path = _get_state_file_path("api_usage_counter.txt", test_mode)
+    # // Dung file lock de tranh race condition khi chay da luong
+    try:
+        with utils.file_lock(file_path):
+            count = 0
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    try: count = int(f.read().strip())
+                    except: pass
+            
+            count += 1
+            
+            with open(file_path, 'w') as f:
+                f.write(str(count))
+    except Exception:
+        pass 
+
+def get_total_api_calls(test_mode=False):
+    """Lay tong so API calls."""
+    file_path = _get_state_file_path("api_usage_counter.txt", test_mode)
+    if not os.path.exists(file_path):
+        return 0
+    try:
+        with open(file_path, 'r') as f:
+            return int(f.read().strip())
+    except:
+        return 0
 
 def reset_all_states(host_id, test_mode=True):
     """

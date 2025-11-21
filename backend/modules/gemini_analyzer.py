@@ -3,6 +3,7 @@ import logging
 import time
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
+from modules import state_manager
 
 # // cau hinh retry
 MAX_RETRIES = 3
@@ -52,6 +53,10 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
 
             model = genai.GenerativeModel(model_name)
             request_options = {"timeout": 420}
+
+            # // Tang counter API call truoc khi goi (hoac sau khi goi thanh cong)
+            # // O day ta tang ngay khi goi de track usage thuc te
+            state_manager.increment_total_api_calls()
 
             response = model.generate_content(
                 prompt,
