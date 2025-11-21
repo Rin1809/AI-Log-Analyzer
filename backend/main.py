@@ -23,7 +23,7 @@ CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
 # // Dinh nghia kich thuoc chunk co dinh cho Map-Reduce
-CHUNK_SIZE = 10000 
+CHUNK_SIZE = 8000
 
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
