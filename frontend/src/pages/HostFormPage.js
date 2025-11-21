@@ -7,8 +7,8 @@ import {
   Switch, NumberInput, NumberInputField, NumberInputStepper, NumberIncrementStepper, NumberDecrementStepper,
   useColorModeValue, Flex, Checkbox, Tooltip, SimpleGrid,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
-  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement, Badge,
-  Spinner, Center
+  Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement,
+  Spinner, Center, Badge
 } from '@chakra-ui/react';
 import { 
     ArrowBackIcon, AddIcon, ArrowUpIcon, ArrowDownIcon, 
@@ -18,6 +18,31 @@ import {
 import PromptManager from '../components/hosts/PromptManager';
 import ApiKeySelector from '../components/hosts/ApiKeySelector'; 
 import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
+
+// --- Local Component: Status Badge (Matched with HostStatusPage) ---
+const StatusBadge = ({ isEnabled }) => {
+    const onlineColor = useColorModeValue('green.500', 'green.400');
+    const offlineColor = useColorModeValue('red.500', 'red.400');
+    const onlineBg = useColorModeValue('green.100', 'green.800');
+    const offlineBg = useColorModeValue('red.100', 'red.800');
+  
+    return (
+      <Flex
+        alignItems="center"
+        bg={isEnabled ? onlineBg : offlineBg}
+        color={isEnabled ? onlineColor : offlineColor}
+        borderRadius="full"
+        px={3}
+        py={1}
+        w="fit-content"
+      >
+        <Box w="8px" h="8px" borderRadius="full" bg={isEnabled ? onlineColor : offlineColor} mr={2} />
+        <Text fontSize="sm" fontWeight="medium" lineHeight="1">
+          {isEnabled ? 'Online' : 'Disabled'}
+        </Text>
+      </Flex>
+    );
+};
 
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
@@ -37,7 +62,7 @@ const HostFormPage = () => {
         syshostname: '', logfile: '/var/log/filter.log', timezone: 'Asia/Ho_Chi_Minh',
         run_interval_seconds: 3600, hourstoanalyze: 24, geminiapikey: '',
         networkdiagram: '', smtp_profile: '', context_files: [],
-        chunk_size: 8000
+        chunk_size: 8000, enabled: 'True'
     });
 
     // Data sources
@@ -273,9 +298,16 @@ const HostFormPage = () => {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            const payload = { ...basicInfo, pipeline };
+            // // FIX: Convert string 'True'/'False' to boolean for Pydantic API
+            const payload = { 
+                ...basicInfo, 
+                pipeline,
+                enabled: basicInfo.enabled === 'True' 
+            };
+            
             if (hostId) await axios.put(`/api/hosts/${hostId}`, payload, { params: { test_mode: isTestMode }});
             else await axios.post('/api/hosts', payload, { params: { test_mode: isTestMode }});
+            
             toast({ title: "Saved Successfully", status: "success" });
             navigate('/status');
         } catch (e) {
@@ -297,6 +329,11 @@ const HostFormPage = () => {
                 <HStack>
                     <IconButton icon={<ArrowBackIcon />} onClick={() => navigate('/status')} variant="ghost" aria-label="Back" />
                     <Heading size="lg" fontWeight="normal">{hostId ? `Edit ${basicInfo.syshostname}` : 'New Host'}</Heading>
+                    
+                    {/* // UI MOI: Status Badge dong bo style */}
+                    {hostId && (
+                        <StatusBadge isEnabled={String(basicInfo.enabled) === 'True'} />
+                    )}
                 </HStack>
                 <Button 
                     isLoading={isSaving} 
@@ -540,12 +577,15 @@ const HostFormPage = () => {
                                             </Box>
                                         )}
                                         
-                                        <Flex justify="flex-end" mt={3}>
-                                            <HStack>
-                                                <Text fontSize="xs" color="gray.500">Enabled</Text>
-                                                <Switch size="sm" isChecked={stage.enabled} onChange={e=>updateStage(idx, 'enabled', e.target.checked)} />
-                                            </HStack>
-                                        </Flex>
+                                        {/* // FIX: An switch Enabled cho Stage 0 */}
+                                        {idx !== 0 && (
+                                            <Flex justify="flex-end" mt={3}>
+                                                <HStack>
+                                                    <Text fontSize="xs" color="gray.500">Enabled</Text>
+                                                    <Switch size="sm" isChecked={stage.enabled} onChange={e=>updateStage(idx, 'enabled', e.target.checked)} />
+                                                </HStack>
+                                            </Flex>
+                                        )}
                                     </Box>
                                 ))}
                             </VStack>

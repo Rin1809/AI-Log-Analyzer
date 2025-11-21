@@ -123,6 +123,7 @@ class HostConfig(BaseModel):
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
     pipeline: List[PipelineStage] = []
+    enabled: bool = True # // Add enabled field
 
     @field_validator('syshostname')
     @classmethod
@@ -232,13 +233,15 @@ async def create_host(host_config: HostConfig, test_mode: bool = False):
             if config.has_section(host_id): raise HTTPException(status_code=409, detail="Host exists")
             
             config.add_section(host_id)
-            for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
+            for key, value in host_config.model_dump(exclude={'context_files', 'pipeline', 'enabled'}).items():
                 config.set(host_id, key, str(value))
             for i, file_path in enumerate(host_config.context_files, 1):
                 config.set(host_id, f'context_file_{i}', file_path)
             pipeline_json = json.dumps([s.model_dump() for s in host_config.pipeline])
             config.set(host_id, 'pipeline_config', pipeline_json)
-            config.set(host_id, 'enabled', 'True')
+            
+            # // Allow setting enabled status on create
+            config.set(host_id, 'enabled', str(host_config.enabled))
             
             with open(config_path, 'w', encoding='utf-8') as f: config.write(f)
             
@@ -278,13 +281,16 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                         logging.error(f"Failed to rename host dir: {e}")
                 current_report_dir = new_report_dir 
 
-            old_enabled = config.get(host_id, 'enabled', fallback='True')
+            # // FIX: Update enabled status based on request, NOT old config
+            # old_enabled = config.get(host_id, 'enabled', fallback='True') <--- Removed this line
             
             config.remove_section(host_id)
             config.add_section(new_host_id)
             
-            config.set(new_host_id, 'enabled', old_enabled)
-            for key, value in host_config.model_dump(exclude={'context_files', 'pipeline'}).items():
+            # // Set enabled from request
+            config.set(new_host_id, 'enabled', str(host_config.enabled))
+            
+            for key, value in host_config.model_dump(exclude={'context_files', 'pipeline', 'enabled'}).items():
                 config.set(new_host_id, key, str(value))
             for i, file_path in enumerate(host_config.context_files, 1):
                 config.set(new_host_id, f'context_file_{i}', file_path)
