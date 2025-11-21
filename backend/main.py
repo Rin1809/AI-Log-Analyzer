@@ -22,6 +22,9 @@ from modules import utils
 CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
+# // Dinh nghia kich thuoc chunk co dinh cho Map-Reduce
+CHUNK_SIZE = 10000 
+
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
@@ -98,14 +101,18 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
 
 def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, system_settings, test_mode=False):
     """
-    Stage 0: RAW LOG ANALYSIS (Map-Reduce / Parallel Support)
+    Stage 0: RAW LOG ANALYSIS (Dynamic Map-Reduce)
+    Logic: 
+    - Chunk log thanh cac khoi 10k dong.
+    - Main Worker an chunk 0.
+    - Substage n an chunk n+1.
+    - Neu het chunk, cac worker thua se NGU (Sleep).
+    - Neu co nhieu worker chay, kich hoat SummarySubstage de gop ket qua.
     """
     stage_name = stage_config.get('name', 'Periodic')
     substages = stage_config.get('substages', [])
     
     logging.info(f"[{host_section}] >>> Running Stage 0: {stage_name}")
-    if substages:
-        logging.info(f"[{host_section}] >>> Parallel Mode: Enabled ({len(substages)} substages)")
 
     log_file = host_config.get(host_section, 'LogFile')
     hours = host_config.getint(host_section, 'HoursToAnalyze', fallback=24)
@@ -115,12 +122,12 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
 
-
-    base_limit = 10000
-    total_limit = base_limit * (1 + len(substages))
+    # // Tinh toan tong so dong toi da co the xu ly (Main + tat ca Substages)
+    # // Vi du: 5 worker -> (1 + 5) * 10000 = 60000 dong toi da
+    total_capacity_lines = CHUNK_SIZE * (1 + len(substages))
     
-
-    read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode, custom_limit=total_limit)
+    # // Doc log voi limit khong lo
+    read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode, custom_limit=total_capacity_lines)
     
     if not read_result or read_result[0] is None:
         logging.error(f"[{host_section}] Log read failed. Aborting.")
@@ -133,57 +140,73 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
         state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
         return True
 
-
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
-    
 
-    workers_payload = []
-    
-
-    workers_payload.append({
-        "name": "Main_Worker",
-        "model": stage_config.get('model'),
-        "prompt_file": stage_config.get('prompt_file'),
-        "gemini_api_key": host_config.get(host_section, 'GeminiAPIKey'),
-        "enabled": True
-    })
-    
-
-    for sub in substages:
-        if sub.get('enabled', True):
-            workers_payload.append(sub)
-            
-    active_workers = len(workers_payload)
-    
-
-
+    # // Chia Log thanh cac Chunk
     log_lines = full_log_content.splitlines()
-    chunk_size = len(log_lines) // active_workers + 1
-    log_chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
+    # // List cac chunks [chunk0, chunk1, chunk2...]
+    chunks = [log_lines[i:i + CHUNK_SIZE] for i in range(0, len(log_lines), CHUNK_SIZE)]
     
+    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks of max {CHUNK_SIZE}.")
 
+    # // Chuan bi danh sach worker can chay
+    active_workers_payload = []
 
-    if len(log_chunks) > active_workers:
-   
+    # 1. Main Worker luon xu ly Chunk 0 (neu co)
+    if len(chunks) > 0:
+        # Convert list lines back to string
+        chunk_str = "\n".join(chunks[0])
+        active_workers_payload.append({
+            "config": {
+                "name": "Main_Worker",
+                "model": stage_config.get('model'),
+                "prompt_file": stage_config.get('prompt_file'),
+                "gemini_api_key": host_config.get(host_section, 'GeminiAPIKey')
+            },
+            "content": chunk_str
+        })
 
+    # 2. Map Chunk 1..N vao Substage 0..N
+    # Chi kich hoat substage neu con chunk
+    for i in range(1, len(chunks)):
+        sub_idx = i - 1
+        if sub_idx < len(substages):
+            sub_conf = substages[sub_idx]
+            if sub_conf.get('enabled', True):
+                chunk_str = "\n".join(chunks[i])
+                active_workers_payload.append({
+                    "config": sub_conf,
+                    "content": chunk_str
+                })
+        else:
+            # Log nhieu hon so luong worker -> Chunk cuoi cung se bi bo qua hoac nhet vao worker cuoi?
+            # O day ta chap nhan bo qua de dam bao performance, hoac nhet vao worker cuoi cung
+            # Logic hien tai: Bo qua, logreader da warning.
+            pass
 
-        log_chunks[-2].extend(log_chunks[-1])
-        log_chunks.pop()
+    if not active_workers_payload:
+        logging.warning(f"[{host_section}] No chunks to process (Strange state).")
+        return False
 
-    logging.info(f"[{host_section}] Split {log_count} lines into {len(log_chunks)} chunks for parallel processing.")
+    logging.info(f"[{host_section}] >>> Parallel Activation: {len(active_workers_payload)} workers active. ({len(substages) + 1 - len(active_workers_payload)} sleeping).")
 
-
-
+    # // Chay Song Song
     aggregated_results = []
     failed_workers = []
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=active_workers) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_workers_payload)) as executor:
         future_to_worker = {}
-        for i, worker in enumerate(workers_payload):
-            if i < len(log_chunks):
-                chunk_str = "\n".join(log_chunks[i])
-                future = executor.submit(process_chunk_worker, worker, chunk_str, host_section, bonus_context, system_settings, prompt_dir)
-                future_to_worker[future] = worker['name']
+        for task in active_workers_payload:
+            future = executor.submit(
+                process_chunk_worker, 
+                task['config'], 
+                task['content'], 
+                host_section, 
+                bonus_context, 
+                system_settings, 
+                prompt_dir
+            )
+            future_to_worker[future] = task['config']['name']
         
         for future in concurrent.futures.as_completed(future_to_worker):
             w_name = future_to_worker[future]
@@ -194,60 +217,76 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                 logging.error(f"[{host_section}] Worker {w_name} generated an exception: {exc}")
                 failed_workers.append(w_name)
 
-
-
     if failed_workers:
-        logging.error(f"[{host_section}] One or more workers failed ({', '.join(failed_workers)}). Aborting batch to ensure data integrity.")
+        logging.error(f"[{host_section}] Critical: One or more workers failed. Aborting to prevent partial data report.")
         return False
 
-
-
-
+    # --- REDUCE STEP (SUMMARY SUBSTAGE) ---
+    # Logic: Neu > 1 worker chay, ta phai goi AI de gop ket qua.
+    # Neu chi co 1 worker, dung luon ket qua do.
     
-    final_summary_stats = {
-        "total_blocked_events": 0,
-        "top_blocked_source_ip": "See Details",
-        "alerts_count": 0
-    }
-    combined_markdown = ""
+    final_markdown = ""
+    final_stats = {}
     
-
-
-
-
-    
-    for res in aggregated_results:
-        raw_text = res['result']
-        stats = utils.extract_json_from_text(raw_text)
+    if len(aggregated_results) == 1:
+        # Case simple: Chi co Main Worker
+        raw_text = aggregated_results[0]['result']
+        final_stats = utils.extract_json_from_text(raw_text)
+        final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
+    else:
+        # Case Map-Reduce: Can chay SummarySubstage
+        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce) for {len(aggregated_results)} outputs...")
         
-
-
-        try:
-            val = int(stats.get("total_blocked_events", 0))
-            final_summary_stats["total_blocked_events"] += val
-        except: pass
+        # Gop text dau vao
+        combined_inputs = []
+        for res in aggregated_results:
+            combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
         
-        try:
-            val = int(stats.get("alerts_count", 0))
-            final_summary_stats["alerts_count"] += val
-        except: pass
+        full_combined_text = "\n\n".join(combined_inputs)
+
+        summary_prompt_file = os.path.join(prompt_dir, 'summary_prompt_template.md')
         
+        # Dung model cua Main Worker de chay summary
+        reduce_model = stage_config.get('model')
+        
+        # Goi AI Reduce
+        reduce_result = gemini_analyzer.analyze_with_gemini(
+            f"{host_section}_SummarySubstage",
+            full_combined_text,
+            bonus_context,
+            main_api_key,
+            summary_prompt_file,
+            reduce_model
+        )
+        
+        if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
+            logging.error(f"[{host_section}] SummarySubstage Failed. Fallback to concatenation.")
 
-        clean_md = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
-        combined_markdown += f"\n\n## --- Analysis Part ({res['worker']}) ---\n{clean_md}"
+            final_stats = {"total_blocked_events": 0, "alerts_count": 0, "fallback": True}
+            final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n"
+            for res in aggregated_results:
+                final_markdown += f"\n### {res['worker']}\n{res['result']}\n"
+        else:
+            final_stats = utils.extract_json_from_text(reduce_result)
+            final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
+            
 
+            if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
+                final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
+            if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
+                final_stats["alerts_count"] = final_stats["total_alerts_period"]
 
-
+    # --- SAVE REPORT ---
     report_data = {
         "hostname": hostname, 
         "analysis_start_time": start_time.isoformat(), 
         "analysis_end_time": end_time.isoformat(),
         "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
         "raw_log_count": log_count, 
-        "summary_stats": final_summary_stats, 
-        "analysis_details_markdown": combined_markdown,
+        "summary_stats": final_stats, 
+        "analysis_details_markdown": final_markdown,
         "stage_index": 0,
-        "parallel_workers": active_workers
+        "parallel_workers_active": len(active_workers_payload)
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
@@ -267,15 +306,22 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
             try:
                 tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
+                
+                # // an so do mang neu khong co
+                diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
+                if not diag or not os.path.exists(diag):
+                     tpl = tpl.replace('id="network-diagram-card"', 'id="network-diagram-card" style="display: none;"')
+                else:
+                     tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
+                
                 body = tpl.format(
-                    hostname=hostname, analysis_result=markdown.markdown(combined_markdown),
-                    total_blocked=final_summary_stats.get("total_blocked_events", "0"),
-                    top_ip="Mixed Sources",
-                    critical_alerts=final_summary_stats.get("alerts_count", "0"),
+                    hostname=hostname, analysis_result=markdown.markdown(final_markdown),
+                    total_blocked=final_stats.get("total_blocked_events", "0"),
+                    top_ip=final_stats.get("top_blocked_source_ip", "N/A"),
+                    critical_alerts=final_stats.get("alerts_count", "0"),
                     start_time=start_time.strftime('%H:%M %d-%m'), end_time=end_time.strftime('%H:%M %d-%m')
                 )
                 atts = get_attachments(host_config, host_section, system_settings)
-                diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
                 email_service.send_email(host_section, email_subject, body, smtp, recipient_emails, diag, atts)
             except Exception as e: logging.error(f"Email failed: {e}")
 
@@ -367,6 +413,13 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                 
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
                 
+                # // Fix logic hien thi so do mang cho email summary
+                diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
+                if not diag or not os.path.exists(diag):
+                     tpl = tpl.replace('id="network-diagram-card"', 'id="network-diagram-card" style="display: none;"')
+                else:
+                     tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
+
                 issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
                 blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
                 
@@ -377,7 +430,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     end_time=end_time.strftime('%d-%m') if end_time else "?"
                 )
                 atts = reports_to_process 
-                diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
+                
                 email_service.send_email(host_section, email_subject, body, smtp, recipients, diag, atts)
             except Exception as e: logging.error(f"Email error {stage_name}: {e}")
 
