@@ -36,7 +36,8 @@ const HostFormPage = () => {
     const [basicInfo, setBasicInfo] = useState({
         syshostname: '', logfile: '/var/log/filter.log', timezone: 'Asia/Ho_Chi_Minh',
         run_interval_seconds: 3600, hourstoanalyze: 24, geminiapikey: '',
-        networkdiagram: '', smtp_profile: '', context_files: []
+        networkdiagram: '', smtp_profile: '', context_files: [],
+        chunk_size: 8000
     });
 
     // Data sources
@@ -159,7 +160,7 @@ const HostFormPage = () => {
                 if (hostId) {
                     const res = await axios.get(`/api/hosts/${hostId}`, { params: { test_mode: isTestMode }});
                     const { pipeline: pl, ...rest } = res.data;
-                    setBasicInfo(rest);
+                    setBasicInfo(prev => ({ ...prev, ...rest }));
                     setPipeline(pl && pl.length > 0 ? pl : createDefaultPipeline(models.data));
                 } else {
                     setPipeline(createDefaultPipeline(models.data));
@@ -335,7 +336,7 @@ const HostFormPage = () => {
                                         </NumberInput>
                                     </FormControl>
                                 </SimpleGrid>
-
+                                
                                 <FormControl isRequired>
                                     <FormLabel>Gemini API Key</FormLabel>
                                     <ApiKeySelector 
@@ -495,7 +496,15 @@ const HostFormPage = () => {
                                                 />
                                             </FormControl>
 
-                                            {idx > 0 && (
+                                            {idx === 0 ? (
+                                                <FormControl>
+                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">Chunk Size (Lines)</FormLabel>
+                                                    <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size || 8000} onChange={(_, v)=>setBasicInfo({...basicInfo, chunk_size: v})}>
+                                                        <NumberInputField />
+                                                        <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
+                                                    </NumberInput>
+                                                </FormControl>
+                                            ) : (
                                                 <FormControl>
                                                     <FormLabel fontSize="xs" mb={0} color="gray.500">Trigger Threshold</FormLabel>
                                                     <NumberInput size="xs" min={1} value={stage.trigger_threshold} onChange={(_,v)=>updateStage(idx, 'trigger_threshold', v)}>
@@ -504,7 +513,7 @@ const HostFormPage = () => {
                                                 </FormControl>
                                             )}
                                             
-                                            <FormControl gridColumn={idx > 0 ? "span 1" : "span 2"}>
+                                            <FormControl>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">Notifications</FormLabel>
                                                 <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
                                                     Manage Emails ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-    Box, VStack, HStack, Text, IconButton, Button, 
+    Box, VStack, HStack, Text, IconButton,
     useColorModeValue, Select, SimpleGrid, Flex,
-    Badge, Input, Divider, Collapse, Icon, FormControl, FormLabel
+    Badge, Input, Divider, Collapse, Icon, FormControl, FormLabel,
+    Tooltip
 } from '@chakra-ui/react';
 import { AddIcon, MinusIcon, ChevronDownIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import ApiKeySelector from './ApiKeySelector';
@@ -43,26 +44,50 @@ const MapReduceEditor = ({
             )}
 
             <VStack spacing={4} align="stretch" position="relative" zIndex={1}>
-                {/* Label Goc - Clickable Header */}
+                {/* HEADER SECTION */}
                 <Flex 
                     align="center" 
                     mb={2} 
-                    cursor="pointer" 
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    _hover={{ opacity: 0.8 }}
+                    justify="space-between" // Day nut Add sang phai
                     userSelect="none"
                 >
-                    <Box 
-                        w="8px" h="8px" borderRadius="full" bg="cyan.500" 
-                        position="absolute" left="19px" 
-                        boxShadow="0 0 8px cyan"
-                    />
-                    <HStack ml={10} spacing={2}>
-                        <Text fontSize="xs" fontWeight="normal" color="gray.500" textTransform="uppercase" letterSpacing="wider">
-                            Map-Reduce Workers ({substages?.length || 0})
-                        </Text>
-                        <Icon as={isExpanded ? ChevronDownIcon : ChevronRightIcon} color="gray.500" />
-                    </HStack>
+                    {/* Left Side: Click to Toggle Expand */}
+                    <Flex 
+                        align="center" 
+                        cursor="pointer" 
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        _hover={{ opacity: 0.8 }}
+                        flex="1"
+                    >
+                        <Box 
+                            w="8px" h="8px" borderRadius="full" bg="cyan.500" 
+                            position="absolute" left="19px" 
+                            boxShadow="0 0 8px cyan"
+                        />
+                        <HStack ml={10} spacing={2}>
+                            <Text fontSize="xs" fontWeight="normal" color="gray.500" textTransform="uppercase" letterSpacing="wider">
+                                Map-Reduce Workers ({substages?.length || 0})
+                            </Text>
+                            <Icon as={isExpanded ? ChevronDownIcon : ChevronRightIcon} color="gray.500" />
+                        </HStack>
+                    </Flex>
+
+                    {/* Right Side: Add Button */}
+                    <Tooltip label="Add Parallel Worker" hasArrow>
+                        <IconButton 
+                            icon={<AddIcon />} 
+                            size="xs" 
+                            variant="outline" 
+                            colorScheme="gray"
+                            borderRadius="full"
+                            onClick={(e) => {
+                                e.stopPropagation(); // Ngan khong cho toggle Collapse khi click nut Add
+                                onAdd();
+                                if (!isExpanded) setIsExpanded(true); // Tu dong mo ra neu dang dong
+                            }}
+                            aria-label="Add Worker"
+                        />
+                    </Tooltip>
                 </Flex>
 
                 {/* Noi dung Collapse */}
@@ -145,19 +170,8 @@ const MapReduceEditor = ({
                                 </Box>
                             </Box>
                         ))}
-
-                        <Box position="relative" ml={10}>
-                            <Box position="absolute" left="-18px" top="50%" width="18px" height="2px" bg={traceColor} opacity={0.5} />
-                            <Button 
-                                size="sm" leftIcon={<AddIcon />} variant="outline" borderStyle="dashed" w="full"
-                                color="gray.500" fontWeight="normal"
-                                onClick={onAdd}
-                                _hover={{ borderColor: hoverBorder, color: "blue.500", bg: 'transparent' }}
-                            >
-                                Add Parallel Worker
-                            </Button>
-                        </Box>
-
+                        
+                        {/* REDUCE CONFIG SECTION */}
                         <Box position="relative" ml={10} mt={2}>
                             <Box position="absolute" left="-18px" top="20px" width="18px" height="2px" bg={traceColor} />
                             

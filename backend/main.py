@@ -22,8 +22,8 @@ from modules import utils
 CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
-# // Dinh nghia kich thuoc chunk co dinh cho Map-Reduce
-CHUNK_SIZE = 8000
+# // Default fallback
+DEFAULT_CHUNK_SIZE = 8000
 
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
@@ -42,7 +42,7 @@ def get_attachments(config, host_section, system_settings):
     if not system_settings.getboolean('System', 'attach_context_files', fallback=False):
         return []
     
-    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
+    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config', 'chunk_size']
     attachments = []
     for key in config.options(host_section):
         if key not in standard_keys and not key.startswith('context_file_'):
@@ -114,13 +114,16 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     hostname = host_config.get(host_section, 'SysHostname')
     timezone = host_config.get(host_section, 'TimeZone', fallback='UTC')
     
+    # // Load chunk size per host
+    chunk_size = host_config.getint(host_section, 'ChunkSize', fallback=DEFAULT_CHUNK_SIZE)
+    
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
 
-    # // Tinh toan tong so dong toi da co the xu ly (Main + tat ca Substages)
-    total_capacity_lines = CHUNK_SIZE * (1 + len(substages))
+    # // Tinh toan tong so dong toi da co the xu ly (Main + tat ca Substages) dua tren chunk_size config
+    total_capacity_lines = chunk_size * (1 + len(substages))
     
-    # // Doc log voi limit khong lo
+    # // Doc log voi limit custom
     read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode, custom_limit=total_capacity_lines)
     
     if not read_result or read_result[0] is None:
@@ -136,16 +139,13 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
 
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
 
-    # // Chia Log thanh cac Chunk
+    # // Chia Log thanh cac Chunk dua tren chunk_size
     log_lines = full_log_content.splitlines()
-    chunks = [log_lines[i:i + CHUNK_SIZE] for i in range(0, len(log_lines), CHUNK_SIZE)]
+    chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
     
-    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks of max {CHUNK_SIZE}.")
-
-
+    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks of max {chunk_size}.")
 
     active_workers_payload = []
-
 
     if len(chunks) > 0:
         chunk_str = "\n".join(chunks[0])
@@ -158,7 +158,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
             },
             "content": chunk_str
         })
-
 
     for i in range(1, len(chunks)):
         sub_idx = i - 1

@@ -119,6 +119,7 @@ class HostConfig(BaseModel):
     timezone: str
     geminiapikey: str
     networkdiagram: str
+    chunk_size: Optional[int] = 8000
     smtp_profile: Optional[str] = ''
     context_files: List[str] = []
     pipeline: List[PipelineStage] = []
@@ -142,7 +143,7 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     if not config.has_section(section): return {}
     config_dict = dict(config.items(section))
     
-    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config']
+    standard_keys = ['syshostname', 'logfile', 'hourstoanalyze', 'timezone', 'run_interval_seconds', 'geminiapikey', 'networkdiagram', 'enabled', 'smtp_profile', 'pipeline_config', 'chunk_size']
     
     other_context = [config.get(section, key) for key in config.options(section) 
                      if key not in standard_keys and not key.startswith('context_file_')]
@@ -160,10 +161,10 @@ def config_to_dict(config: configparser.ConfigParser, section: str) -> dict:
     except json.JSONDecodeError:
         config_dict['pipeline'] = []
 
-    for key in ['run_interval_seconds', 'hourstoanalyze']:
+    for key in ['run_interval_seconds', 'hourstoanalyze', 'chunk_size']:
         if key in config_dict:
              try: config_dict[key] = int(config_dict[key])
-             except: config_dict[key] = 0
+             except: config_dict[key] = 8000 if key == 'chunk_size' else 0
              
     return config_dict
 
