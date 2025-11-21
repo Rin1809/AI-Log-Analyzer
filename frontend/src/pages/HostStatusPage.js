@@ -41,6 +41,7 @@ import {
   Center
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
+import { useLanguage } from '../context/LanguageContext';
 
 const POLLING_INTERVAL = 15000;
 
@@ -55,6 +56,7 @@ const StatusBadge = ({ isEnabled }) => {
   const offlineColor = useColorModeValue('red.500', 'red.400');
   const onlineBg = useColorModeValue('green.100', 'green.800');
   const offlineBg = useColorModeValue('red.100', 'red.800');
+  const { t } = useLanguage();
 
   return (
     <Flex
@@ -68,7 +70,7 @@ const StatusBadge = ({ isEnabled }) => {
     >
       <Box w="8px" h="8px" borderRadius="full" bg={isEnabled ? onlineColor : offlineColor} mr={2} />
       <Text fontSize="sm" fontWeight="medium" lineHeight="1">
-        {isEnabled ? 'Online' : 'Disabled'}
+        {isEnabled ? t('online') : t('disabled')}
       </Text>
     </Flex>
   );
@@ -84,6 +86,7 @@ const HostStatusPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const toast = useToast();
   const { isOpen: isDeleteModalOpen, onOpen: onDeleteModalOpen, onClose: onDeleteModalClose } = useDisclosure();
+  const { t } = useLanguage();
 
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
@@ -98,11 +101,11 @@ const HostStatusPage = () => {
       setStatus(statusRes.data);
     } catch (err) {
       console.error(err);
-      setError(`Failed to connect to backend. Details: ${err.message}`);
+      setError(`${t('error')}: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [status.length]);
+  }, [status.length, t]);
 
   useEffect(() => {
     fetchData(isTestMode);
@@ -113,10 +116,10 @@ const HostStatusPage = () => {
   const handleToggleStatus = async (hostId) => {
     try {
       await axios.post(`/api/status/${hostId}/toggle`, {}, { params: { test_mode: isTestMode } });
-      toast({ title: "Success", description: `Status for ${hostId} toggled.`, status: "success", duration: 3000, isClosable: true });
+      toast({ title: t('success'), status: "success", duration: 3000, isClosable: true });
       fetchData(isTestMode);
     } catch (err) {
-      toast({ title: "Error", description: `Failed to toggle status. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: t('error'), description: err.message, status: "error", duration: 5000, isClosable: true });
     }
   };
   
@@ -129,10 +132,10 @@ const HostStatusPage = () => {
     if (!hostToDelete) return;
     try {
       await axios.delete(`/api/hosts/${hostToDelete.id}`, { params: { test_mode: isTestMode }});
-      toast({ title: "Host Deleted", description: `${hostToDelete.hostname} has been deleted.`, status: "success", duration: 3000, isClosable: true });
+      toast({ title: t('success'), status: "success", duration: 3000, isClosable: true });
       fetchData(isTestMode);
     } catch (err) {
-      toast({ title: "Error", description: `Failed to delete host. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: t('error'), description: err.message, status: "error", duration: 5000, isClosable: true });
     } finally {
       onDeleteModalClose();
       setHostToDelete(null);
@@ -146,7 +149,6 @@ const HostStatusPage = () => {
   }, [status, searchTerm]);
 
   if (loading) {
-    // style cho thanh loading
     return <Center h="80vh"><Spinner size="xl" /></Center>;
   }
 
@@ -158,7 +160,7 @@ const HostStatusPage = () => {
     <VStack spacing={6} align="stretch">
       <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
         <Flex justify="space-between" align="center" mb={6} wrap="wrap" gap={4}>
-          <Heading size="lg" fontWeight="normal">Host Status</Heading>
+          <Heading size="lg" fontWeight="normal">{t('hostStatusTitle')}</Heading>
           
           <HStack spacing={3} w={{ base: '100%', md: 'auto' }}>
              <InputGroup maxW="300px">
@@ -166,12 +168,12 @@ const HostStatusPage = () => {
                     <SearchIcon color="gray.300" />
                 </InputLeftElement>
                 <Input 
-                    placeholder="Search host..." 
+                    placeholder={t('search')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
              </InputGroup>
-             <Tooltip label="Add New Host" placement="top" hasArrow bg="gray.600" color="white">
+             <Tooltip label={t('add')} placement="top" hasArrow bg="gray.600" color="white">
                 <IconButton 
                     icon={<AddIcon />} 
                     colorScheme="blue" 
@@ -188,11 +190,11 @@ const HostStatusPage = () => {
         <Table variant="simple">
           <Thead>
             <Tr>
-              <Th>Hostname</Th>
-              <Th>Status</Th>
-              <Th>Last Run</Th>
-              <Th>Enabled</Th>
-              <Th>Actions</Th>
+              <Th>{t('hostname')}</Th>
+              <Th>{t('status')}</Th>
+              <Th>{t('lastRun')}</Th>
+              <Th>{t('isEnabled')}</Th>
+              <Th>{t('actions')}</Th>
             </Tr>
           </Thead>
           <Tbody>
@@ -202,7 +204,7 @@ const HostStatusPage = () => {
                   <Td fontWeight="medium">{host.hostname}</Td>
                   <Td><StatusBadge isEnabled={host.is_enabled} /></Td>
                   <Td fontSize="sm" color="gray.500">
-                    {host.last_run !== 'Never' ? new Date(host.last_run).toLocaleString() : 'Never'}
+                    {host.last_run !== 'Never' ? new Date(host.last_run).toLocaleString() : t('never')}
                   </Td>
                   <Td>
                     <Switch size="md" id={`switch-${host.id}`} isChecked={host.is_enabled} onChange={() => handleToggleStatus(host.id)} colorScheme="blue" />
@@ -218,10 +220,10 @@ const HostStatusPage = () => {
                         />
                         <MenuList>
                             <MenuItem icon={<EditIcon />} onClick={() => navigate(`/status/edit/${host.id}`)}>
-                                Edit Configuration
+                                {t('editConfig')}
                             </MenuItem>
                             <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleDeleteClick(host)}>
-                                Delete Host
+                                {t('deleteHost')}
                             </MenuItem>
                         </MenuList>
                     </Menu>
@@ -229,7 +231,7 @@ const HostStatusPage = () => {
                 </Tr>
               ))
             ) : (
-              <Tr><Td colSpan={5} textAlign="center" py={4} color="gray.500">No hosts found.</Td></Tr>
+              <Tr><Td colSpan={5} textAlign="center" py={4} color="gray.500">{t('noHosts')}</Td></Tr>
             )}
           </Tbody>
         </Table>
@@ -238,15 +240,14 @@ const HostStatusPage = () => {
       <Modal isOpen={isDeleteModalOpen} onClose={onDeleteModalClose} isCentered>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Confirm Deletion</ModalHeader>
+          <ModalHeader>{t('confirmDeletion')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            Are you sure you want to delete the host{' '}
-            <Text as="span" fontWeight="bold">{hostToDelete?.hostname}</Text>? This action cannot be undone.
+            {t('confirmDeleteHost')} <Text as="span" fontWeight="bold">{hostToDelete?.hostname}</Text>? {t('cannotUndo')}
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onDeleteModalClose}>Cancel</Button>
-            <Button colorScheme="red" onClick={confirmDelete}>Delete</Button>
+            <Button variant="ghost" mr={3} onClick={onDeleteModalClose}>{t('cancel')}</Button>
+            <Button colorScheme="red" onClick={confirmDelete}>{t('delete')}</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

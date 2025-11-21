@@ -24,12 +24,13 @@ import {
 } from '@chakra-ui/react';
 import { ChevronDownIcon, LockIcon, UnlockIcon, CheckIcon, SettingsIcon } from '@chakra-ui/icons';
 import ApiKeyManagerModal from './ApiKeyManagerModal';
+import { useLanguage } from '../../context/LanguageContext';
 
 const ApiKeySelector = ({ value, onChange, isTestMode }) => {
     const [profiles, setProfiles] = useState({});
     const [loading, setLoading] = useState(false);
     const [showKey, setShowKey] = useState(false);
-    
+    const { t } = useLanguage();
 
     const { isOpen, onOpen, onClose } = useDisclosure();
 
@@ -101,7 +102,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                 ) : (
                     <Input
                         type={showKey ? 'text' : 'password'}
-                        placeholder="Enter Raw API Key or Select Profile..."
+                        placeholder={t('enterKeyOrProfile')}
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
                         bg={bg}
@@ -146,7 +147,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                                 </MenuItem>
                                 <MenuDivider />
                                 {Object.keys(profiles).length === 0 ? (
-                                    <MenuItem isDisabled fontSize="sm" color="gray.500">No profiles found</MenuItem>
+                                    <MenuItem isDisabled fontSize="sm" color="gray.500">{t('noFilesFound')}</MenuItem>
                                 ) : (
                                     Object.keys(profiles).map(name => (
                                         <MenuItem key={name} onClick={() => handleProfileSelect(name)} icon={name === currentProfileName ? <CheckIcon color="green.500"/> : null}>
@@ -156,7 +157,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                                 )}
                                 <MenuDivider />
                                 <MenuItem icon={<SettingsIcon />} onClick={onOpen} color="black.500" fontWeight="medium">
-                                    Manage Profiles...
+                                    {t('manageKeys')}...
                                 </MenuItem>
                             </MenuList>
                         </Portal>

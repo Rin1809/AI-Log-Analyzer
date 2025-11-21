@@ -18,6 +18,7 @@ import {
   IconButton
 } from '@chakra-ui/react';
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
+import { useLanguage } from '../../context/LanguageContext';
 
 const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
   const [profile, setProfile] = useState({
@@ -29,6 +30,7 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const toast = useToast();
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (profileData) {
@@ -52,8 +54,8 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
   const handleSaveClick = () => {
     if (!profile.profile_name || !profile.server || !profile.port || !profile.sender_email) {
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
+        title: t('missingInfo'),
+        description: t('fillAllFields'),
         status: "warning",
         duration: 3000,
         isClosable: true,
@@ -68,28 +70,28 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
     <Modal isOpen={isOpen} onClose={onClose} isCentered>
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader fontWeight="normal">{profileData ? 'Edit' : 'Add New'} SMTP Profile</ModalHeader>
+        <ModalHeader fontWeight="normal">{profileData ? t('edit') : t('add')} SMTP Profile</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
           <VStack spacing={4}>
             <FormControl isRequired>
-              <FormLabel fontSize="sm">Profile Name</FormLabel>
+              <FormLabel fontSize="sm">{t('profileName')}</FormLabel>
               <Input name="profile_name" value={profile.profile_name} onChange={handleChange} isDisabled={!!profileData} />
             </FormControl>
             <FormControl isRequired>
-              <FormLabel fontSize="sm">SMTP Server</FormLabel>
+              <FormLabel fontSize="sm">{t('smtpServerAddress')}</FormLabel>
               <Input name="server" value={profile.server} onChange={handleChange} />
             </FormControl>
             <FormControl isRequired>
-              <FormLabel fontSize="sm">Port</FormLabel>
+              <FormLabel fontSize="sm">{t('port')}</FormLabel>
               <Input name="port" type="number" value={profile.port} onChange={handleChange} />
             </FormControl>
             <FormControl isRequired>
-              <FormLabel fontSize="sm">Sender Email</FormLabel>
+              <FormLabel fontSize="sm">{t('senderEmail')}</FormLabel>
               <Input name="sender_email" type="email" value={profile.sender_email} onChange={handleChange} />
             </FormControl>
             <FormControl>
-              <FormLabel fontSize="sm">Password / App Password</FormLabel>
+              <FormLabel fontSize="sm">{t('passwordAppPass')}</FormLabel>
               <InputGroup>
                 <Input
                   name="sender_password"
@@ -112,10 +114,10 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
         </ModalBody>
         <ModalFooter>
           <Button variant="ghost" mr={3} onClick={onClose}>
-            Cancel
+            {t('cancel')}
           </Button>
           <Button  colorScheme="gray" onClick={handleSaveClick}>
-            Save Profile
+            {t('save')}
           </Button>
         </ModalFooter>
       </ModalContent>

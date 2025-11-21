@@ -6,7 +6,7 @@ import {
     Stack,
     StackDivider
 } from '@chakra-ui/react';
-
+import { useLanguage } from '../../context/LanguageContext';
 
 const formatNumber = (num) => {
     if (num === undefined || num === null) return 0;
@@ -48,6 +48,7 @@ const StatPanel = ({ stats }) => {
     const bg = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
     const dividerColor = useColorModeValue('gray.200', 'gray.600');
+    const { t } = useLanguage();
 
     return (
         <Box
@@ -69,7 +70,7 @@ const StatPanel = ({ stats }) => {
             >
                 <Box flex="1">
                     <StatItem
-                        label="Total Raw Logs"
+                        label={t('totalRawLogs')}
                         value={stats.total_raw_logs}
                         color="blue.500"
                     />
@@ -77,7 +78,7 @@ const StatPanel = ({ stats }) => {
                 
                 <Box flex="1">
                     <StatItem
-                        label="Analyzed Logs"
+                        label={t('analyzedLogs')}
                         value={stats.total_analyzed_logs}
                         color="green.500"
                     />
@@ -85,7 +86,7 @@ const StatPanel = ({ stats }) => {
 
                 <Box flex="1">
                     <StatItem
-                        label="Gemini API Calls"
+                        label={t('apiCalls')}
                         value={stats.total_api_calls}
                         color="purple.500"
                     />

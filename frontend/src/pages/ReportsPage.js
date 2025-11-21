@@ -17,18 +17,19 @@ import ReportFilters from '../components/reports/ReportFilters';
 import ReportsTable from '../components/reports/ReportsTable';
 import PaginationControls from '../components/reports/PaginationControls';
 import ReportViewerModal from '../components/reports/ReportViewerModal';
+import { useLanguage } from '../context/LanguageContext';
 
 const POLLING_INTERVAL = 15000;
 const REPORTS_PER_PAGE = 10;
 
 const ReportsPage = () => {
   const { isTestMode } = useOutletContext();
+  const { t } = useLanguage();
   const [reports, setReports] = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Expanded Filters State
   const [filters, setFilters] = useState({ 
       hostname: '', 
       type: '',
@@ -53,11 +54,11 @@ const ReportsPage = () => {
       setReports(reportsRes.data);
     } catch (err) {
       console.error(err);
-      setError(`Failed to connect to backend. Details: ${err.message}`);
+      setError(`${t('error')}: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [reports.length]);
+  }, [reports.length, t]);
 
   useEffect(() => {
     fetchData(isTestMode);
@@ -79,7 +80,7 @@ const ReportsPage = () => {
       if (!startStr && !endStr) return true;
       
       const reportDate = new Date(reportDateStr);
-      reportDate.setHours(0,0,0,0); // Normalize
+      reportDate.setHours(0,0,0,0); 
 
       if (startStr) {
           const start = new Date(startStr);
@@ -129,7 +130,7 @@ const ReportsPage = () => {
       });
       onReportModalOpen();
     } catch (err) {
-      toast({ title: "Error", description: `Could not load raw content. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: t('error'), description: err.message, status: "error", duration: 5000, isClosable: true });
     }
   };
 
@@ -143,7 +144,7 @@ const ReportsPage = () => {
         });
         onReportModalOpen();
     } catch (err) {
-        toast({ title: "Preview Error", description: `Could not generate preview. ${err.message}`, status: "error", duration: 5000 });
+        toast({ title: "Preview Error", description: err.message, status: "error", duration: 5000 });
     }
   };
 
@@ -153,18 +154,17 @@ const ReportsPage = () => {
   };
 
   const handleDelete = async (reportPath) => {
-      if (!window.confirm("Are you sure you want to delete this report? This will affect dashboard statistics.")) return;
+      if (!window.confirm(t('deleteReportConfirm'))) return;
       try {
           await axios.delete(`/api/reports?path=${encodeURIComponent(reportPath)}`);
-          toast({ title: "Deleted", status: "success" });
-          fetchData(isTestMode); // Refresh list
+          toast({ title: t('deleteSuccess'), status: "success" });
+          fetchData(isTestMode); 
       } catch (err) {
-          toast({ title: "Delete Failed", description: err.message, status: "error" });
+          toast({ title: t('deleteFailed'), description: err.message, status: "error" });
       }
   };
 
   if (loading) {
-    // Dong thanh   loading
     return <Center h="80vh"><Spinner size="xl" /></Center>;
   }
 
@@ -175,7 +175,7 @@ const ReportsPage = () => {
   return (
     <VStack spacing={8} align="stretch">
       <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="md" bg={cardBg}>
-        <Heading size="lg" fontWeight="normal" mb={6}>Generated Reports</Heading>
+        <Heading size="lg" fontWeight="normal" mb={6}>{t('generatedReportsTitle')}</Heading>
         
         <ReportFilters 
             filters={filters} 

@@ -38,7 +38,8 @@ import {
 } from '@chakra-ui/react';
 import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon, StarIcon} from '@chakra-ui/icons';
 import SmtpProfileModal from '../components/settings/SmtpProfileModal';
-import ApiKeyManagerModal from '../components/hosts/ApiKeyManagerModal'; // Reused here
+import ApiKeyManagerModal from '../components/hosts/ApiKeyManagerModal'; 
+import { useLanguage } from '../context/LanguageContext';
 
 const SettingsCard = ({ title, children, actions }) => {
   const cardBg = useColorModeValue('white', 'gray.800');
@@ -58,6 +59,7 @@ const SettingsCard = ({ title, children, actions }) => {
 
 const SettingsPage = () => {
   const { isTestMode, setIsTestMode } = useOutletContext();
+  const { t } = useLanguage();
   const [settings, setSettings] = useState({
     report_directory: '',
     prompt_directory: '',
@@ -75,7 +77,6 @@ const SettingsPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [currentProfile, setCurrentProfile] = useState(null);
   
-  // Key Modal State
   const { isOpen: isKeyModalOpen, onOpen: onKeyModalOpen, onClose: onKeyModalClose } = useDisclosure();
 
   const toast = useToast();
@@ -104,11 +105,11 @@ const SettingsPage = () => {
       setSchedulerType(data.scheduler_check_interval_seconds === 60 ? 'default' : 'custom');
     } catch (err) {
       console.error(err);
-      setError(`Failed to load system settings. Details: ${err.message}`);
+      setError(`${t('loadFailed')}: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchData(isTestMode);
@@ -132,21 +133,19 @@ const SettingsPage = () => {
     try {
       await axios.post('/api/system-settings', settings, { params: { test_mode: isTestMode } });
       toast({
-        title: "Settings Saved",
-        description: "Your changes have been saved successfully.",
+        title: t('settingsSaved'),
         status: "success",
         duration: 3000,
         isClosable: true,
       });
     } catch (err) {
       console.error(err);
-      toast({ title: "Save Failed", description: `Could not save settings. ${err.message}`, status: "error", duration: 5000, isClosable: true });
+      toast({ title: t('saveError'), description: err.message, status: "error", duration: 5000, isClosable: true });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // --- SMTP Profile Logic ---
   const handleAddProfile = () => {
     setCurrentProfile(null);
     onModalOpen();
@@ -169,7 +168,6 @@ const SettingsPage = () => {
     }));
   };
 
-  // --- Key Manager Callbacks ---
   const handleKeysChanged = (newProfiles) => {
       setSettings(prev => ({ ...prev, gemini_profiles: newProfiles }));
   }
@@ -180,17 +178,16 @@ const SettingsPage = () => {
 
   return (
     <VStack spacing={6} align="stretch">
-      <Heading size="lg" fontWeight="normal">System Settings</Heading>
+      <Heading size="lg" fontWeight="normal">{t('systemSettings')}</Heading>
       
       {error && <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>}
 
-      {/* Change layout to equal columns (1fr 1fr) */}
       <Grid templateColumns={{ base: '1fr', lg: 'repeat(2, 1fr)' }} gap={6}>
         <GridItem>
-          <SettingsCard title="Default Paths">
+          <SettingsCard title={t('defaultPaths')}>
             {['report_directory', 'prompt_directory', 'context_directory'].map(key => (
               <FormControl key={key}>
-                <FormLabel fontSize="sm" textTransform="capitalize">{key.replace('_', ' ')}</FormLabel>
+                <FormLabel fontSize="sm" textTransform="capitalize">{t(key.replace('_', 'Directory').replace('directory', 'Directory')) || key}</FormLabel>
                 <InputGroup>
                   <InputLeftElement pointerEvents="none"><Icon as={AttachmentIcon} color="gray.500" /></InputLeftElement>
                   <Input name={key} value={settings[key] || ''} onChange={handleInputChange} isDisabled={loading || !!error || isSaving} />
@@ -201,15 +198,15 @@ const SettingsPage = () => {
         </GridItem>
 
         <GridItem>
-          <SettingsCard title="Email Server (SMTP)">
+          <SettingsCard title={t('emailServer')}>
               <FormControl>
-                <FormLabel fontSize="sm">Active SMTP Profile</FormLabel>
+                <FormLabel fontSize="sm">{t('activeSmtpProfile')}</FormLabel>
                 <HStack>
                     <Select
                         name="active_smtp_profile"
                         value={settings.active_smtp_profile}
                         onChange={handleInputChange}
-                        placeholder="None"
+                        placeholder={t('none')}
                     >
                         {Object.keys(settings.smtp_profiles).map(name => (
                             <option key={name} value={name}>{name}</option>
@@ -221,7 +218,7 @@ const SettingsPage = () => {
               </FormControl>
               <FormControl display="flex" alignItems="center" justifyContent="space-between">
                 <Box>
-                  <FormLabel htmlFor="attach-files-switch" mb="0" fontSize="sm">Attach Context Files</FormLabel>
+                  <FormLabel htmlFor="attach-files-switch" mb="0" fontSize="sm">{t('attachContextFiles')}</FormLabel>
                   <Text fontSize="xs" color="gray.500">Attach context files to periodic emails.</Text>
                 </Box>
                 <Switch id="attach-files-switch" colorScheme="blue" name="attach_context_files" isChecked={settings.attach_context_files} onChange={handleInputChange} />
@@ -231,12 +228,12 @@ const SettingsPage = () => {
 
         <GridItem>
             <SettingsCard 
-                title="Gemini API Key Profiles" 
-                actions={<Button size="xs" fontWeight="normal" leftIcon={<SettingsIcon />} onClick={onKeyModalOpen}>Manage Keys</Button>}
+                title={t('geminiKeyProfiles')}
+                actions={<Button size="xs" fontWeight="normal" leftIcon={<SettingsIcon />} onClick={onKeyModalOpen}>{t('manageKeys')}</Button>}
             >
                 <Wrap spacing={3}>
                     {Object.keys(settings.gemini_profiles).length === 0 ? (
-                        <Text fontSize="sm" color="gray.500" fontStyle="italic">No profiles configured.</Text>
+                        <Text fontSize="sm" color="gray.500" fontStyle="italic">{t('noFilesFound')}</Text>
                     ) : (
                         Object.keys(settings.gemini_profiles).map(name => (
                             <WrapItem key={name}>
@@ -255,10 +252,10 @@ const SettingsPage = () => {
         </GridItem>
 
         <GridItem>
-            <SettingsCard title="General">
+            <SettingsCard title={t('general')}>
                  <VStack spacing={6} align="stretch">
                     <FormControl>
-                        <FormLabel fontSize="sm">Scheduler Interval</FormLabel>
+                        <FormLabel fontSize="sm">{t('schedulerInterval')}</FormLabel>
                         <RadioGroup onChange={handleSchedulerIntervalChange} value={schedulerType}>
                             <Stack direction="row" spacing={5}>
                                 <Radio value="default">Default (60s)</Radio>
@@ -279,7 +276,7 @@ const SettingsPage = () => {
                     </FormControl>
                     <FormControl display="flex" alignItems="center" justifyContent="space-between">
                         <Box>
-                            <FormLabel htmlFor="test-mode-switch" mb="0">Test Mode</FormLabel>
+                            <FormLabel htmlFor="test-mode-switch" mb="0">{t('testMode')}</FormLabel>
                             <Text fontSize="xs" color="gray.500">Use test configuration and assets.</Text>
                         </Box>
                         <Switch id="test-mode-switch" colorScheme="blue" isChecked={isTestMode} onChange={(e) => setIsTestMode(e.target.checked)} />
@@ -291,7 +288,7 @@ const SettingsPage = () => {
       
       <Box pt={4}>
         <Button fontWeight="normal" onClick={handleSave} isLoading={isSaving} isDisabled={loading || !!error} leftIcon={<SettingsIcon />} bg={saveButtonBg} color={saveButtonColor} _hover={{ bg: saveButtonHoverBg }}>
-          Save
+          {t('save')}
         </Button>
       </Box>
 

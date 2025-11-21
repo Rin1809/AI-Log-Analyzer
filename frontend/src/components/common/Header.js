@@ -28,15 +28,15 @@ const getBreadcrumbs = (pathname, t) => {
 
   const breadcrumbs = [];
   if (paths[0] === 'status') {
-    breadcrumbs.push({ label: 'Modules', isCurrent: false });
+    breadcrumbs.push({ label: t('modules'), isCurrent: false });
     breadcrumbs.push({ label: t('hostStatus'), to: '/status', isCurrent: paths.length === 1 });
     if (paths[1] === 'add') breadcrumbs.push({ label: t('add'), isCurrent: true });
     else if (paths[1] === 'edit') breadcrumbs.push({ label: t('edit'), isCurrent: true });
   } else if (paths[0] === 'reports') {
-    breadcrumbs.push({ label: 'Modules', isCurrent: false });
+    breadcrumbs.push({ label: t('modules'), isCurrent: false });
     breadcrumbs.push({ label: t('generatedReports'), to: '/reports', isCurrent: true });
   } else if (paths[0] === 'settings') {
-    breadcrumbs.push({ label: 'Management', isCurrent: false });
+    breadcrumbs.push({ label: t('management'), isCurrent: false });
     breadcrumbs.push({ label: t('settings'), to: '/settings', isCurrent: true });
   } else {
     breadcrumbs.push({ label: 'Page', isCurrent: false });

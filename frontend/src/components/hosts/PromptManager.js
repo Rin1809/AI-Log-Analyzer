@@ -35,8 +35,8 @@ import {
     AddIcon, EditIcon, DeleteIcon, SettingsIcon, 
     ExternalLinkIcon, ChevronDownIcon 
 } from '@chakra-ui/icons';
+import { useLanguage } from '../../context/LanguageContext';
 
-// Icon file text don gian
 const FileIcon = (props) => (
     <Icon viewBox="0 0 24 24" fill="currentColor" {...props}>
         <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
@@ -53,8 +53,8 @@ const PLACEHOLDERS = [
 const PromptManager = ({ value, onChange, isTestMode }) => {
     const [prompts, setPrompts] = useState([]);
     const [loading, setLoading] = useState(false);
+    const { t } = useLanguage();
     
-    // Modal State
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [editorMode, setEditorMode] = useState('view'); 
     const [editorFilename, setEditorFilename] = useState('');
@@ -64,14 +64,12 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
     const textareaRef = useRef(null);
     const toast = useToast();
 
-    // Styles
     const borderColor = useColorModeValue('gray.200', 'gray.600');
     const hoverBorderColor = useColorModeValue('blue.400', 'blue.400');
     const bg = useColorModeValue('white', 'gray.700');
     const editorBg = 'gray.900'; 
     const editorColor = 'gray.100';
 
-    // --- Load Prompts ---
     const fetchPrompts = useCallback(async () => {
         setLoading(true);
         try {
@@ -88,8 +86,6 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
         fetchPrompts();
     }, [fetchPrompts]);
 
-    // --- Handlers ---
-
     const handleOpenEditor = async (mode) => {
         setEditorMode(mode);
         
@@ -105,7 +101,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                 setEditorContent(res.data.content);
                 onOpen();
             } catch (err) {
-                toast({ title: "Error loading content", description: err.message, status: "error" });
+                toast({ title: t('loadFailed'), description: err.message, status: "error" });
             }
         }
     };
@@ -113,7 +109,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
     const handleSavePrompt = async () => {
         let finalName = editorFilename.trim();
         if (!finalName) {
-            toast({ title: "Filename required", status: "warning" });
+            toast({ title: t('missingInfo'), status: "warning" });
             return;
         }
         if (!finalName.endsWith('.md')) finalName += '.md';
@@ -125,12 +121,12 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                 content: editorContent
             }, { params: { test_mode: isTestMode } });
 
-            toast({ title: "Prompt Saved", status: "success" });
+            toast({ title: t('success'), status: "success" });
             await fetchPrompts();
             onChange(finalName); 
             onClose();
         } catch (err) {
-            toast({ title: "Save Failed", description: err.response?.data?.detail || err.message, status: "error" });
+            toast({ title: t('saveError'), description: err.response?.data?.detail || err.message, status: "error" });
         } finally {
             setIsSaving(false);
         }
@@ -138,15 +134,15 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
 
     const handleDeletePrompt = async () => {
         if (!value) return;
-        if (!window.confirm(`Delete prompt "${value}" permanently?`)) return;
+        if (!window.confirm(`${t('deleteFilesConfirm')} "${value}"?`)) return;
 
         try {
             await axios.delete(`/api/prompts/${value}`, { params: { test_mode: isTestMode } });
-            toast({ title: "Deleted", status: "success" });
+            toast({ title: t('success'), status: "success" });
             await fetchPrompts();
             onChange('');
         } catch (err) {
-            toast({ title: "Delete Failed", description: err.response?.data?.detail || err.message, status: "error" });
+            toast({ title: t('error'), description: err.response?.data?.detail || err.message, status: "error" });
         }
     };
 
@@ -166,7 +162,6 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
 
     return (
         <>
-            {/* Unified Toolbar Container */}
             <Flex 
                 align="center" 
                 borderWidth="1px" 
@@ -177,7 +172,6 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                 _hover={{ borderColor: hoverBorderColor, boxShadow: 'sm' }}
                 h="32px" 
             >
-                {/* Dropdown Section */}
                 <Menu matchWidth>
                     <MenuButton 
                         as={Button} 
@@ -194,17 +188,17 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                         overflow="hidden"
                         _focus={{ boxShadow: 'none' }}
                         _active={{ bg: 'transparent' }}
-                        isLoading={loading} // Fixed unused var warning
+                        isLoading={loading}
                     >
                         <HStack spacing={2}>
                             <FileIcon color={value ? "blue.500" : "gray.400"} boxSize={4} />
                             <Text isTruncated color={value ? "inherit" : "gray.500"}>
-                                {value || "Select a prompt file..."}
+                                {value || t('promptFile')}
                             </Text>
                         </HStack>
                     </MenuButton>
                     <MenuList zIndex={15} maxH="300px" overflowY="auto">
-                        {prompts.length === 0 && <MenuItem isDisabled>No prompts found</MenuItem>}
+                        {prompts.length === 0 && <MenuItem isDisabled>{t('noFilesFound')}</MenuItem>}
                         {prompts.map(p => (
                             <MenuItem key={p} onClick={() => onChange(p)} icon={<FileIcon color="gray.400"/>}>
                                 {p}
@@ -212,16 +206,15 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                         ))}
                         <MenuDivider />
                         <MenuItem icon={<AddIcon />} onClick={() => handleOpenEditor('create')} color="blue.500" fontWeight="medium">
-                            Create New Template...
+                            {t('add')}...
                         </MenuItem>
                     </MenuList>
                 </Menu>
 
                 <Divider orientation="vertical" h="20px" />
 
-                {/* Actions Section */}
                 <HStack spacing={0} px={1}>
-                    <Tooltip label="Edit / View Content" hasArrow>
+                    <Tooltip label={t('edit')} hasArrow>
                         <IconButton 
                             icon={<EditIcon />} 
                             size="sm" 
@@ -236,7 +229,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                     </Tooltip>
                     
                     <Menu>
-                        <Tooltip label="Manage" hasArrow>
+                        <Tooltip label={t('manage')} hasArrow>
                             <MenuButton 
                                 as={IconButton} 
                                 icon={<SettingsIcon />} 
@@ -250,17 +243,16 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                         </Tooltip>
                         <MenuList zIndex={15}>
                             <MenuItem icon={<AddIcon />} onClick={() => handleOpenEditor('create')}>
-                                Create New
+                                {t('add')}
                             </MenuItem>
                             <MenuItem icon={<DeleteIcon />} color="red.500" isDisabled={!value} onClick={handleDeletePrompt}>
-                                Delete Current
+                                {t('delete')}
                             </MenuItem>
                         </MenuList>
                     </Menu>
                 </HStack>
             </Flex>
 
-            {/* Advanced Editor Modal */}
             <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside" closeOnOverlayClick={false}>
                 <ModalOverlay backdropFilter="blur(4px)" />
                 <ModalContent h="85vh" display="flex" flexDirection="column" bg={editorBg} color={editorColor}>
@@ -269,7 +261,7 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                             <HStack>
                                 <Icon as={EditIcon} color="blue.400" />
                                 <Text fontSize="md" fontFamily="monospace">
-                                    {editorMode === 'create' ? 'New Prompt' : editorFilename}
+                                    {editorMode === 'create' ? t('add') : editorFilename}
                                 </Text>
                                 {editorMode === 'edit' && <Tag size="sm" colorScheme="gray" variant="solid">EDITING</Tag>}
                             </HStack>
@@ -294,10 +286,9 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                     <ModalCloseButton color="white" />
                     
                     <ModalBody p={0} display="flex" flexDirection="column" flex={1}>
-                        {/* Toolbar */}
                         <Box py={2} px={4} bg="gray.800" borderBottom="1px solid" borderColor="gray.700">
                             <HStack spacing={4}>
-                                <Text fontSize="xs" color="gray.500" fontWeight="bold" letterSpacing="wide">VARIABLES:</Text>
+                                <Text fontSize="xs" color="gray.500" fontWeight="bold" letterSpacing="wide">{t('variables')}</Text>
                                 <Wrap spacing={2}>
                                     {PLACEHOLDERS.map(ph => (
                                         <WrapItem key={ph.value}>
@@ -319,7 +310,6 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                             </HStack>
                         </Box>
 
-                        {/* Editor Area */}
                         <Box flex={1} position="relative">
                             <Textarea 
                                 ref={textareaRef}
@@ -351,10 +341,10 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                             Mode: Markdown • Line: {editorContent.split('\n').length}
                         </Text>
                         <Button variant="ghost" mr={3} onClick={onClose} size="sm" color="gray.400" _hover={{ color: "white", bg: "gray.700" }}>
-                            Cancel
+                            {t('cancel')}
                         </Button>
                         <Button colorScheme="gray" onClick={handleSavePrompt} isLoading={isSaving} leftIcon={<ExternalLinkIcon />} size="sm">
-                            Save Prompt
+                            {t('save')}
                         </Button>
                     </ModalFooter>
                 </ModalContent>

@@ -34,44 +34,40 @@ import PieChartDisplay from '../components/dashboard/PieChartDisplay';
 import LineChartDisplay from '../components/dashboard/LineChartDisplay';
 import InfoCard from '../components/dashboard/InfoCard';
 import StatPanel from '../components/dashboard/StatPanel';
+import { useLanguage } from '../context/LanguageContext';
 
 const POLLING_INTERVAL = 30000;
 
 const MainDashboard = () => {
     const { isTestMode } = useOutletContext();
+    const { t } = useLanguage();
     
-    // --- Data State ---
     const [statusData, setStatusData] = useState([]);
     const [reports, setReports] = useState([]);
     const [dashboardStats, setDashboardStats] = useState({ total_raw_logs: 0, total_analyzed_logs: 0, total_api_calls: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     
-    // --- Global Filter State ---
     const [filters, setFilters] = useState({
         hostname: '',
         startDate: '',
         endDate: ''
     });
 
-    // --- Chart Specific Filter State ---
     const [chartFilter, setChartFilter] = useState({
         startDateTime: '',
         endDateTime: ''
     });
 
-    // // State cho viec chon host cu the de so sanh tren bieu do
     const [selectedChartHosts, setSelectedChartHosts] = useState([]);
 
     const isInitialLoad = useRef(true);
 
-    // --- Styles ---
     const cardBg = useColorModeValue('gray.50', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
     const filterBg = useColorModeValue('white', 'gray.800');
     const inputBg = useColorModeValue('white', 'gray.700');
 
-    // --- Fetch Data ---
     const fetchData = useCallback(async (testMode) => {
         if (isInitialLoad.current) setLoading(true);
         setError('');
@@ -87,14 +83,14 @@ const MainDashboard = () => {
             setDashboardStats(statsRes.data);
         } catch (err) {
             console.error(err);
-            setError(`Failed to fetch dashboard data. Details: ${err.message}`);
+            setError(`${t('error')}: ${err.message}`);
         } finally {
             if (isInitialLoad.current) {
                 setLoading(false);
                 isInitialLoad.current = false;
             }
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         setStatusData([]);
@@ -106,8 +102,6 @@ const MainDashboard = () => {
         return () => clearInterval(intervalId);
     }, [fetchData, isTestMode]);
 
-
-    // --- Global Filtering Logic ---
 
     const filteredStatus = useMemo(() => {
         if (!filters.hostname) return statusData;
@@ -140,16 +134,13 @@ const MainDashboard = () => {
         });
     }, [reports, filters]);
 
-
-    // --- Chart Data Calculation ---
-
     const hostStatusData = useMemo(() => {
         if (!filteredStatus || filteredStatus.length === 0) return [];
         const active = filteredStatus.filter(s => s.is_enabled).length;
         const inactive = filteredStatus.length - active;
         if (active === 0 && inactive === 0) return [];
-        return [{ name: 'Active', value: active }, { name: 'Inactive', value: inactive }];
-    }, [filteredStatus]);
+        return [{ name: t('active'), value: active }, { name: t('inactive'), value: inactive }];
+    }, [filteredStatus, t]);
 
     const reportTypeData = useMemo(() => {
         if (!filteredReports || filteredReports.length === 0) return [];
@@ -227,7 +218,6 @@ const MainDashboard = () => {
 
         if (allTimestamps.length === 0 && targetHostnames.length > 0) return { data: [], keys: [] };
 
-        // Khoi tao gia tri mac dinh
         const lastValues = targetHostnames.reduce((acc, host) => {
             acc[host] = 0;
             return acc;
@@ -244,8 +234,6 @@ const MainDashboard = () => {
                     lastValues[report.hostname] = val;
                 });
             } else {
-                 // Reset ve 0 neu khong co report (optional: hoac giu gia tri cu neu muon dang step-chart)
-                 // O day ta reset ve 0 de the hien su vang mat cua log
                  targetHostnames.forEach(host => {
                     lastValues[host] = 0; 
                 });
@@ -259,7 +247,6 @@ const MainDashboard = () => {
     }, [reports, filteredStatus, chartFilter, selectedChartHosts]);
 
 
-    // --- Handlers ---
     const handleResetGlobalFilters = () => {
         setFilters({ hostname: '', startDate: '', endDate: '' });
     };
@@ -277,7 +264,6 @@ const MainDashboard = () => {
 
     const clearChartHostSelection = () => setSelectedChartHosts([]);
 
-    // --- Render ---
     if (loading) {
         return <Center h="80vh"><Spinner size="xl" /></Center>;
     }
@@ -286,22 +272,20 @@ const MainDashboard = () => {
         return <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>;
     }
 
-    // Lay danh sach cac host dang active de hien thi trong Menu
     const activeHostnamesForMenu = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
 
     return (
         <VStack spacing={6} align="stretch">
-            {/* // New Stat Panel */}
             <StatPanel stats={dashboardStats} />
 
             <Box p={5} borderWidth="1px" borderColor={borderColor} borderRadius="lg" bg={filterBg} shadow="sm">
                 <Flex direction={{ base: 'column', lg: 'row' }} gap={4} align={{ base: 'stretch', lg: 'flex-end' }}>
                     <FormControl flex="1">
-                        <FormLabel fontSize="sm" fontWeight="normal" color="gray.500">Global Filter (Host & Broad Date)</FormLabel>
+                        <FormLabel fontSize="sm" fontWeight="normal" color="gray.500">{t('globalFilter')}</FormLabel>
                         <InputGroup>
                             <InputLeftElement pointerEvents="none"><SearchIcon color="gray.400" /></InputLeftElement>
                             <Input 
-                                placeholder="Search Hostname..." 
+                                placeholder={t('search')}
                                 value={filters.hostname}
                                 onChange={(e) => setFilters(prev => ({ ...prev, hostname: e.target.value }))}
                                 bg={inputBg}
@@ -309,37 +293,37 @@ const MainDashboard = () => {
                         </InputGroup>
                     </FormControl>
                     <FormControl w={{ base: '100%', lg: '200px' }}>
-                         <FormLabel fontSize="sm" color="gray.500">From Date</FormLabel>
+                         <FormLabel fontSize="sm" color="gray.500">{t('fromDate')}</FormLabel>
                          <Input type="date" value={filters.startDate} onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))} bg={inputBg} />
                     </FormControl>
                     <FormControl w={{ base: '100%', lg: '200px' }}>
-                         <FormLabel fontSize="sm" color="gray.500">To Date</FormLabel>
+                         <FormLabel fontSize="sm" color="gray.500">{t('toDate')}</FormLabel>
                          <Input type="date" value={filters.endDate} onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))} bg={inputBg} />
                     </FormControl>
                     <Button leftIcon={<Icon as={RepeatIcon} />} onClick={handleResetGlobalFilters} colorScheme="gray" variant="outline" fontWeight="normal">
-                        Reset
+                        {t('reset')}
                     </Button>
                 </Flex>
             </Box>
 
             <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
                 <VStack align="stretch" spacing={3}>
-                    <Heading size="md" fontWeight="normal" textAlign="left">Host Status</Heading>
+                    <Heading size="md" fontWeight="normal" textAlign="left">{t('hostStatusTitle')}</Heading>
                     <InfoCard><PieChartDisplay data={hostStatusData} /></InfoCard>
                 </VStack>
                 <VStack align="stretch" spacing={3}>
-                    <Heading size="md" fontWeight="normal" textAlign="left">Report Types</Heading>
+                    <Heading size="md" fontWeight="normal" textAlign="left">{t('reportTypes')}</Heading>
                     <InfoCard><PieChartDisplay data={reportTypeData} /></InfoCard>
                 </VStack>
                 <VStack align="stretch" spacing={3}>
-                    <Heading size="md" fontWeight="normal" textAlign="left">Reports by Host</Heading>
+                    <Heading size="md" fontWeight="normal" textAlign="left">{t('reportsByHost')}</Heading>
                     <InfoCard><PieChartDisplay data={reportsByHostData} /></InfoCard>
                 </VStack>
             </SimpleGrid>
             
             <VStack align="stretch" spacing={3} mt={4}>
                 <Flex align="center" wrap="wrap" gap={4}>
-                    <Heading size="md" fontWeight="normal">Log Volume Analysis</Heading>
+                    <Heading size="md" fontWeight="normal">{t('logVolume')}</Heading>
                     <Spacer />
                     
                     
@@ -352,11 +336,11 @@ const MainDashboard = () => {
                             bg={cardBg}
                             fontWeight="normal"
                         >
-                            Compare Hosts ({selectedChartHosts.length === 0 ? 'All' : selectedChartHosts.length})
+                            {t('compareHosts')} ({selectedChartHosts.length === 0 ? 'All' : selectedChartHosts.length})
                         </MenuButton>
                         <MenuList zIndex={10} maxH="300px" overflowY="auto">
                              <MenuItem onClick={clearChartHostSelection} fontSize="sm" color="blue.500">
-                                Show All
+                                {t('showAll')}
                              </MenuItem>
                              <MenuDivider />
                             {activeHostnamesForMenu.map(host => (
@@ -372,7 +356,7 @@ const MainDashboard = () => {
                                 </MenuItem>
                             ))}
                             {activeHostnamesForMenu.length === 0 && (
-                                <MenuItem isDisabled fontSize="sm">No active hosts</MenuItem>
+                                <MenuItem isDisabled fontSize="sm">{t('noHosts')}</MenuItem>
                             )}
                         </MenuList>
                     </Menu>
@@ -380,7 +364,7 @@ const MainDashboard = () => {
                     {/* Time Filter for Chart */}
                     <HStack spacing={2} bg={cardBg} p={2} borderRadius="md" borderWidth="1px" borderColor={borderColor}>
                         <Icon as={TimeIcon} color="gray.500" />
-                        <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">Time Range:</Text>
+                        <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">{t('timeRange')}:</Text>
                         
                         <Input 
                             type="datetime-local" 

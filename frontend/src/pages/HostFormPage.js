@@ -18,13 +18,14 @@ import {
 import PromptManager from '../components/hosts/PromptManager';
 import ApiKeySelector from '../components/hosts/ApiKeySelector'; 
 import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
+import { useLanguage } from '../context/LanguageContext';
 
-// --- Local Component: Status Badge (Matched with HostStatusPage) ---
 const StatusBadge = ({ isEnabled }) => {
     const onlineColor = useColorModeValue('green.500', 'green.400');
     const offlineColor = useColorModeValue('red.500', 'red.400');
     const onlineBg = useColorModeValue('green.100', 'green.800');
     const offlineBg = useColorModeValue('red.100', 'red.800');
+    const { t } = useLanguage();
   
     return (
       <Flex
@@ -38,7 +39,7 @@ const StatusBadge = ({ isEnabled }) => {
       >
         <Box w="8px" h="8px" borderRadius="full" bg={isEnabled ? onlineColor : offlineColor} mr={2} />
         <Text fontSize="sm" fontWeight="medium" lineHeight="1">
-          {isEnabled ? 'Online' : 'Disabled'}
+          {isEnabled ? t('online') : t('disabled')}
         </Text>
       </Flex>
     );
@@ -49,15 +50,14 @@ const HostFormPage = () => {
     const { hostId } = useParams();
     const navigate = useNavigate();
     const toast = useToast();
+    const { t } = useLanguage();
     
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     
-    // Refs
     const contextInputRef = useRef(null);
     const diagramInputRef = useRef(null);
 
-    // Config state
     const [basicInfo, setBasicInfo] = useState({
         syshostname: '', logfile: '/var/log/filter.log', timezone: 'Asia/Ho_Chi_Minh',
         run_interval_seconds: 3600, hourstoanalyze: 24, geminiapikey: '',
@@ -65,37 +65,30 @@ const HostFormPage = () => {
         chunk_size: 8000, enabled: 'True'
     });
 
-    // Data sources
     const [pipeline, setPipeline] = useState([]);
     const [geminiModels, setGeminiModels] = useState({});
     const [smtpProfiles, setSmtpProfiles] = useState([]);
     const [availableContextFiles, setAvailableContextFiles] = useState([]);
     
-    // UI State
     const [contextSearch, setContextSearch] = useState('');
     const [filesToDelete, setFilesToDelete] = useState([]);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-    // Email Modal State
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [currentStageIndex, setCurrentStageIndex] = useState(null);
     const [emailInput, setEmailInput] = useState('');
 
-    // --- Styles 
     const bg = useColorModeValue("white", "gray.800");
     const hoverBg = useColorModeValue('gray.50', 'gray.700');
     const btnAddBg = useColorModeValue('gray.100', 'gray.700');
     
-    // Save Button Style
     const saveButtonBg = useColorModeValue('gray.800', 'white');
     const saveButtonColor = useColorModeValue('white', 'gray.800');
     const saveButtonHoverBg = useColorModeValue('black', 'gray.200');
 
-    // Trash/Delete Icon Backgrounds
     const trashIconBg = useColorModeValue('gray.200', 'gray.600');
     const stageTrashBg = useColorModeValue('gray.100', 'gray.700');
 
-    // --- Helpers ---
     const addStage = () => {
         const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
         const newStage = {
@@ -105,8 +98,8 @@ const HostFormPage = () => {
             prompt_file: pipeline.length === 0 ? 'prompt_template.md' : 'summary_prompt_template.md',
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
             recipient_emails: '',
-            substages: [], // Init substages for Stage 0
-            summary_conf: {} // Init summary config
+            substages: [], 
+            summary_conf: {} 
         };
         setPipeline([...pipeline, newStage]);
     };
@@ -133,7 +126,6 @@ const HostFormPage = () => {
         setPipeline(newP);
     };
     
-    // --- Substage Logic (Wrapper functions for Editor) ---
     const handleAddSubstage = (stageIdx) => {
         const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
         const newP = [...pipeline];
@@ -144,7 +136,7 @@ const HostFormPage = () => {
             enabled: true,
             model: defaultModel,
             prompt_file: 'prompt_template.md',
-            gemini_api_key: '' // Substage own key
+            gemini_api_key: '' 
         });
         setPipeline(newP);
     };
@@ -168,8 +160,6 @@ const HostFormPage = () => {
         setPipeline(newP);
     };
 
-
-    // --- Fetch Data ---
     useEffect(() => {
         const init = async () => {
             try {
@@ -192,11 +182,11 @@ const HostFormPage = () => {
                 }
             } catch (e) {
                 console.error(e);
-                toast({ title: "Load failed", description: e.message, status: "error" });
+                toast({ title: t('loadFailed'), description: e.message, status: "error" });
             } finally { setLoading(false); }
         };
         init();
-    }, [hostId, isTestMode, toast]);
+    }, [hostId, isTestMode, toast, t]);
 
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
@@ -206,7 +196,6 @@ const HostFormPage = () => {
         ];
     }
 
-    // --- File Upload / Context Handlers ---
     const handleFileUpload = async (e, type) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -218,15 +207,15 @@ const HostFormPage = () => {
             
             if (type === 'diagram') {
                 setBasicInfo(prev => ({ ...prev, networkdiagram: res.data.path }));
-                toast({ title: "Diagram Uploaded", status: "success" });
+                toast({ title: t('success'), status: "success" });
             } else {
                 const newPath = `Bonus_context/${res.data.filename}`;
                 setAvailableContextFiles(prev => prev.includes(newPath) ? prev : [...prev, newPath]);
                 setBasicInfo(prev => ({ ...prev, context_files: [...prev.context_files, newPath] }));
-                toast({ title: "Context File Uploaded", status: "success" });
+                toast({ title: t('success'), status: "success" });
             }
         } catch (err) {
-            toast({ title: "Upload Failed", description: err.response?.data?.detail || err.message, status: 'error' });
+            toast({ title: t('error'), description: err.response?.data?.detail || err.message, status: 'error' });
         }
     };
 
@@ -262,12 +251,11 @@ const HostFormPage = () => {
         setAvailableContextFiles(prev => prev.filter(f => !deletedSet.has(f)));
         setBasicInfo(prev => ({ ...prev, context_files: prev.context_files.filter(f => !deletedSet.has(f)) }));
         
-        toast({ title: "Deleted", description: `Deleted ${successCount} files.`, status: "success" });
+        toast({ title: t('success'), description: `Deleted ${successCount} files.`, status: "success" });
         setIsDeleteModalOpen(false);
         setFilesToDelete([]);
     };
 
-    // --- Email Modal Handlers ---
     const openEmailModal = (idx) => {
         setCurrentStageIndex(idx);
         setIsEmailModalOpen(true);
@@ -298,7 +286,6 @@ const HostFormPage = () => {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // // FIX: Convert string 'True'/'False' to boolean for Pydantic API
             const payload = { 
                 ...basicInfo, 
                 pipeline,
@@ -308,10 +295,10 @@ const HostFormPage = () => {
             if (hostId) await axios.put(`/api/hosts/${hostId}`, payload, { params: { test_mode: isTestMode }});
             else await axios.post('/api/hosts', payload, { params: { test_mode: isTestMode }});
             
-            toast({ title: "Saved Successfully", status: "success" });
+            toast({ title: t('saveSuccess'), status: "success" });
             navigate('/status');
         } catch (e) {
-            toast({ title: "Save Error", description: e.response?.data?.detail || e.message, status: "error" });
+            toast({ title: t('saveError'), description: e.response?.data?.detail || e.message, status: "error" });
         } finally { setIsSaving(false); }
     };
     
@@ -319,7 +306,6 @@ const HostFormPage = () => {
     const hasSelectedFiles = basicInfo.context_files.length > 0;
 
     if(loading) {
-        // thanh loading
         return <Center h="80vh"><Spinner size="xl" /></Center>;
     }
 
@@ -328,9 +314,8 @@ const HostFormPage = () => {
             <Flex align="center" justify="space-between">
                 <HStack>
                     <IconButton icon={<ArrowBackIcon />} onClick={() => navigate('/status')} variant="ghost" aria-label="Back" />
-                    <Heading size="lg" fontWeight="normal">{hostId ? `Edit ${basicInfo.syshostname}` : 'New Host'}</Heading>
+                    <Heading size="lg" fontWeight="normal">{hostId ? t('editHost') : t('newHost')}</Heading>
                     
-                    {/* // UI MOI: Status Badge dong bo style */}
                     {hostId && (
                         <StatusBadge isEnabled={String(basicInfo.enabled) === 'True'} />
                     )}
@@ -345,29 +330,29 @@ const HostFormPage = () => {
                     size="md"
                     fontWeight="normal"
                 >
-                    Save Configuration
+                    {t('save')}
                 </Button>
             </Flex>
 
             <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
                 <VStack spacing={6} align="stretch">
                     <Card bg={bg}>
-                        <CardHeader><Heading size="md" fontWeight="normal">Basic Information</Heading></CardHeader>
+                        <CardHeader><Heading size="md" fontWeight="normal">{t('basicInfo')}</Heading></CardHeader>
                         <CardBody>
                             <VStack spacing={4}>
-                                <FormControl isRequired><FormLabel>Hostname</FormLabel>
+                                <FormControl isRequired><FormLabel>{t('hostname')}</FormLabel>
                                     <Input value={basicInfo.syshostname} onChange={e=>setBasicInfo({...basicInfo, syshostname: e.target.value})} />
                                 </FormControl>
-                                <FormControl><FormLabel>Log File Path</FormLabel>
+                                <FormControl><FormLabel>{t('logFilePath')}</FormLabel>
                                     <Input value={basicInfo.logfile} onChange={e=>setBasicInfo({...basicInfo, logfile: e.target.value})}/>
                                 </FormControl>
                                 
                             
                                 <SimpleGrid columns={2} spacing={4} w="full">
-                                    <FormControl><FormLabel>Timezone</FormLabel>
+                                    <FormControl><FormLabel>{t('timezone')}</FormLabel>
                                         <Input value={basicInfo.timezone} onChange={e=>setBasicInfo({...basicInfo, timezone: e.target.value})}/>
                                     </FormControl>
-                                    <FormControl><FormLabel>Interval (sec)</FormLabel>
+                                    <FormControl><FormLabel>{t('intervalSec')}</FormLabel>
                                         <NumberInput value={basicInfo.run_interval_seconds} onChange={(_, v)=>setBasicInfo({...basicInfo, run_interval_seconds: v})}>
                                             <NumberInputField /><NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
                                         </NumberInput>
@@ -375,7 +360,7 @@ const HostFormPage = () => {
                                 </SimpleGrid>
                                 
                                 <FormControl isRequired>
-                                    <FormLabel>Gemini API Key</FormLabel>
+                                    <FormLabel>{t('geminiApiKey')}</FormLabel>
                                     <ApiKeySelector 
                                         value={basicInfo.geminiapikey} 
                                         onChange={(val) => setBasicInfo({...basicInfo, geminiapikey: val})}
@@ -387,12 +372,12 @@ const HostFormPage = () => {
                     </Card>
 
                     <Card bg={bg}>
-                        <CardHeader><Heading size="md" fontWeight="normal">Resources & Context</Heading></CardHeader>
+                        <CardHeader><Heading size="md" fontWeight="normal">{t('resourcesContext')}</Heading></CardHeader>
                         <CardBody>
                             <VStack spacing={4} align="stretch">
                                 <FormControl>
-                                    <FormLabel>SMTP Profile (Email Sender)</FormLabel>
-                                    <Select placeholder="Use System Default" value={basicInfo.smtp_profile} onChange={e => setBasicInfo({...basicInfo, smtp_profile: e.target.value})}>
+                                    <FormLabel>{t('smtpProfile')}</FormLabel>
+                                    <Select placeholder={t('useSystemDefault')} value={basicInfo.smtp_profile} onChange={e => setBasicInfo({...basicInfo, smtp_profile: e.target.value})}>
                                         {smtpProfiles.map(p => <option key={p} value={p}>{p}</option>)}
                                     </Select>
                                 </FormControl>
@@ -400,7 +385,7 @@ const HostFormPage = () => {
                                 <Divider />
                                 
                                 <FormControl>
-                                    <FormLabel>Network Diagram</FormLabel>
+                                    <FormLabel>{t('networkDiagram')}</FormLabel>
                                     <Box 
                                         position="relative" borderWidth="2px" borderStyle="dashed" borderColor="gray.300" 
                                         borderRadius="md" p={4} textAlign="center" cursor="pointer" _hover={{ borderColor: "blue.400", bg: hoverBg }}
@@ -421,7 +406,7 @@ const HostFormPage = () => {
                                                 />
                                             </Box>
                                          ) : (
-                                            <VStack spacing={1}><AttachmentIcon boxSize={5} color="gray.400" /><Text fontSize="sm" color="gray.500">Click to upload diagram</Text></VStack>
+                                            <VStack spacing={1}><AttachmentIcon boxSize={5} color="gray.400" /><Text fontSize="sm" color="gray.500">{t('clickToUpload')}</Text></VStack>
                                          )}
                                     </Box>
                                 </FormControl>
@@ -430,16 +415,16 @@ const HostFormPage = () => {
 
                                 <FormControl>
                                     <Flex justify="space-between" align="center" mb={2}>
-                                        <FormLabel mb={0}>Context Files</FormLabel>
+                                        <FormLabel mb={0}>{t('contextFiles')}</FormLabel>
                                         <HStack>
                                             <InputGroup size="sm" w="120px">
                                                 <InputLeftElement pointerEvents="none"><SearchIcon color="gray.300" /></InputLeftElement>
-                                                <Input placeholder="Search..." value={contextSearch} onChange={e => setContextSearch(e.target.value)} />
+                                                <Input placeholder={t('search')} value={contextSearch} onChange={e => setContextSearch(e.target.value)} />
                                             </InputGroup>
                                             <input type="file" ref={contextInputRef} style={{display: 'none'}} onChange={e => handleFileUpload(e, 'context')} />
-                                            <Tooltip label="Upload New"><IconButton size="sm" icon={<AddIcon />} onClick={() => contextInputRef.current.click()} /></Tooltip>
+                                            <Tooltip label={t('uploadNew')}><IconButton size="sm" icon={<AddIcon />} onClick={() => contextInputRef.current.click()} /></Tooltip>
                                             
-                                            <Tooltip label="Delete Selected">
+                                            <Tooltip label={t('deleteSelected')}>
                                                 <IconButton 
                                                     size="sm" icon={<MinusIcon />} 
                                                     variant="ghost" bg={hasSelectedFiles ? trashIconBg : 'transparent'}
@@ -455,7 +440,7 @@ const HostFormPage = () => {
                                             <Checkbox key={f} isChecked={basicInfo.context_files.includes(f)} onChange={() => toggleContextFile(f)} w="full" size="sm" py={1} _hover={{ bg: hoverBg }}>
                                                 <Text fontSize="xs" isTruncated>{f.split('/').pop()}</Text>
                                             </Checkbox>
-                                        )) : <Text fontSize="xs" color="gray.500">No files found.</Text>}
+                                        )) : <Text fontSize="xs" color="gray.500">{t('noFilesFound')}</Text>}
                                     </Box>
                                 </FormControl>
                             </VStack>
@@ -467,8 +452,8 @@ const HostFormPage = () => {
                     <Card bg={bg} h="full">
                         <CardHeader>
                             <Flex justify="space-between" align="center">
-                                <Heading size="md" fontWeight="normal">Analysis Pipeline</Heading>
-                                <Button leftIcon={<AddIcon />} size="sm" onClick={addStage} bg={btnAddBg} fontWeight="normal">Add Stage</Button>
+                                <Heading size="md" fontWeight="normal">{t('analysisPipeline')}</Heading>
+                                <Button leftIcon={<AddIcon />} size="sm" onClick={addStage} bg={btnAddBg} fontWeight="normal">{t('addStage')}</Button>
                             </Flex>
                         </CardHeader>
                         <CardBody>
@@ -487,7 +472,7 @@ const HostFormPage = () => {
                                                     borderRadius="full"
                                                     flexShrink={0}
                                                 >
-                                                    {idx === 0 ? "#0 Source" : `#${idx} Aggregation`}
+                                                    {idx === 0 ? `#0 ${t('sourceStage')}` : `#${idx} ${t('aggregationStage')}`}
                                                 </Badge>
                                                 
                                                 <Input 
@@ -518,14 +503,14 @@ const HostFormPage = () => {
                                         
                                         <SimpleGrid columns={2} spacing={3}>
                                             <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">Model</FormLabel>
+                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('model')}</FormLabel>
                                                 <Select size="xs" value={stage.model} onChange={e=>updateStage(idx, 'model', e.target.value)}>
                                                     {Object.entries(geminiModels).map(([k,v])=> <option key={v} value={v}>{k}</option>)}
                                                 </Select>
                                             </FormControl>
                                             
                                             <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">Prompt File</FormLabel>
+                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('promptFile')}</FormLabel>
                                                 <PromptManager 
                                                     value={stage.prompt_file} 
                                                     onChange={(newVal) => updateStage(idx, 'prompt_file', newVal)}
@@ -535,7 +520,7 @@ const HostFormPage = () => {
 
                                             {idx === 0 ? (
                                                 <FormControl>
-                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">Chunk Size (Lines)</FormLabel>
+                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('chunkSize')}</FormLabel>
                                                     <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size || 8000} onChange={(_, v)=>setBasicInfo({...basicInfo, chunk_size: v})}>
                                                         <NumberInputField />
                                                         <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
@@ -543,7 +528,7 @@ const HostFormPage = () => {
                                                 </FormControl>
                                             ) : (
                                                 <FormControl>
-                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">Trigger Threshold</FormLabel>
+                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('triggerThreshold')}</FormLabel>
                                                     <NumberInput size="xs" min={1} value={stage.trigger_threshold} onChange={(_,v)=>updateStage(idx, 'trigger_threshold', v)}>
                                                         <NumberInputField />
                                                     </NumberInput>
@@ -551,9 +536,9 @@ const HostFormPage = () => {
                                             )}
                                             
                                             <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">Notifications</FormLabel>
+                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
                                                 <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
-                                                    Manage Emails ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
+                                                    {t('manageEmails')} ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
                                                 </Button>
                                             </FormControl>
                                         </SimpleGrid>
@@ -562,7 +547,7 @@ const HostFormPage = () => {
                                         {idx === 0 && (
                                             <Box mt={4} borderTopWidth="1px" borderColor="gray.100" pt={2}>
                                                 <Text fontSize="xs" fontWeight="normal" color="gray" mb={2}>
-                                                    Map-Reduce Architecture (Parallel Scaling)
+                                                    {t('mapReduceArch')}
                                                 </Text>
                                                 <MapReduceEditor 
                                                     substages={stage.substages}
@@ -577,11 +562,10 @@ const HostFormPage = () => {
                                             </Box>
                                         )}
                                         
-                                        {/* // FIX: An switch Enabled cho Stage 0 */}
                                         {idx !== 0 && (
                                             <Flex justify="flex-end" mt={3}>
                                                 <HStack>
-                                                    <Text fontSize="xs" color="gray.500">Enabled</Text>
+                                                    <Text fontSize="xs" color="gray.500">{t('isEnabled')}</Text>
                                                     <Switch size="sm" isChecked={stage.enabled} onChange={e=>updateStage(idx, 'enabled', e.target.checked)} />
                                                 </HStack>
                                             </Flex>
@@ -597,15 +581,15 @@ const HostFormPage = () => {
             <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} isCentered>
                 <ModalOverlay />
                 <ModalContent>
-                    <ModalHeader color="red.500">Delete Files</ModalHeader>
+                    <ModalHeader color="red.500">{t('deleteSelected')}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
-                        <Alert status="warning" mb={3}><AlertIcon />Action cannot be undone.</Alert>
-                        <Text>Deleting <strong>{filesToDelete.length}</strong> files from server.</Text>
+                        <Alert status="warning" mb={3}><AlertIcon />{t('cannotUndo')}</Alert>
+                        <Text>{t('deleteFilesConfirm')}</Text>
                     </ModalBody>
                     <ModalFooter>
-                        <Button variant="ghost" mr={3} onClick={() => setIsDeleteModalOpen(false)}>Cancel</Button>
-                        <Button colorScheme="red" onClick={confirmDeleteFiles}>Delete Permanently</Button>
+                        <Button variant="ghost" mr={3} onClick={() => setIsDeleteModalOpen(false)}>{t('cancel')}</Button>
+                        <Button colorScheme="red" onClick={confirmDeleteFiles}>{t('delete')}</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>
@@ -614,11 +598,11 @@ const HostFormPage = () => {
             <Modal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} isCentered>
                 <ModalOverlay />
                 <ModalContent>
-                    <ModalHeader fontWeight="normal" >Manage Emails - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
+                    <ModalHeader fontWeight="normal" >{t('manageEmails')} - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
                         <HStack mb={4}>
-                            <Input placeholder="email@example.com" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
+                            <Input placeholder={t('enterEmail')} value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
                             <IconButton icon={<AddIcon />} onClick={addEmail} />
                         </HStack>
                         <Wrap>
@@ -633,7 +617,7 @@ const HostFormPage = () => {
                         </Wrap>
                     </ModalBody>
                     <ModalFooter>
-                        <Button fontWeight={'normal'} onClick={() => setIsEmailModalOpen(false)}>Done</Button>
+                        <Button fontWeight={'normal'} onClick={() => setIsEmailModalOpen(false)}>{t('done')}</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>

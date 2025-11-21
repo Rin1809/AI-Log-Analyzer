@@ -8,6 +8,7 @@ import {
 import { AddIcon, MinusIcon, ChevronDownIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import ApiKeySelector from './ApiKeySelector';
 import PromptManager from './PromptManager';
+import { useLanguage } from '../../context/LanguageContext';
 
 const MapReduceEditor = ({ 
     substages, 
@@ -19,8 +20,8 @@ const MapReduceEditor = ({
     geminiModels, 
     isTestMode 
 }) => {
-    // State cho viec Expand/Collapse
     const [isExpanded, setIsExpanded] = useState(true);
+    const { t } = useLanguage();
  
     const traceColor = useColorModeValue('gray.300', 'cyan.700');
     const nodeBg = useColorModeValue('white', 'gray.800'); 
@@ -48,10 +49,9 @@ const MapReduceEditor = ({
                 <Flex 
                     align="center" 
                     mb={2} 
-                    justify="space-between" // Day nut Add sang phai
+                    justify="space-between" 
                     userSelect="none"
                 >
-                    {/* Left Side: Click to Toggle Expand */}
                     <Flex 
                         align="center" 
                         cursor="pointer" 
@@ -72,8 +72,7 @@ const MapReduceEditor = ({
                         </HStack>
                     </Flex>
 
-                    {/* Right Side: Add Button */}
-                    <Tooltip label="Add Parallel Worker" hasArrow>
+                    <Tooltip label={t('add')} hasArrow>
                         <IconButton 
                             icon={<AddIcon />} 
                             size="xs" 
@@ -81,16 +80,15 @@ const MapReduceEditor = ({
                             colorScheme="gray"
                             borderRadius="full"
                             onClick={(e) => {
-                                e.stopPropagation(); // Ngan khong cho toggle Collapse khi click nut Add
+                                e.stopPropagation(); 
                                 onAdd();
-                                if (!isExpanded) setIsExpanded(true); // Tu dong mo ra neu dang dong
+                                if (!isExpanded) setIsExpanded(true);
                             }}
                             aria-label="Add Worker"
                         />
                     </Tooltip>
                 </Flex>
 
-                {/* Noi dung Collapse */}
                 <Collapse in={isExpanded} animateOpacity>
                     <VStack spacing={4} align="stretch">
                         
@@ -134,7 +132,7 @@ const MapReduceEditor = ({
                                                 onChange={e => onUpdate(idx, 'name', e.target.value)} 
                                                 fontWeight="normal" 
                                                 variant="unstyled" 
-                                                placeholder="Worker Name"
+                                                placeholder={t('workerName')}
                                                 flex={1}
                                                 minW={0}
                                             />
@@ -149,7 +147,7 @@ const MapReduceEditor = ({
                                     <Divider mb={3} />
                                     <SimpleGrid columns={{base: 1, xl: 2}} spacing={3}>
                                         <Box>
-                                            <Text fontSize="xs" color="gray.500" mb={1}>Model</Text>
+                                            <Text fontSize="xs" color="gray.500" mb={1}>{t('model')}</Text>
                                             <Select 
                                                 size="xs" value={sub.model} 
                                                 onChange={e => onUpdate(idx, 'model', e.target.value)}
@@ -159,7 +157,7 @@ const MapReduceEditor = ({
                                             </Select>
                                         </Box>
                                         <Box>
-                                            <Text fontSize="xs" color="gray.500" mb={1}>API Key (Optional)</Text>
+                                            <Text fontSize="xs" color="gray.500" mb={1}>{t('apiKey')} (Optional)</Text>
                                             <ApiKeySelector 
                                                 value={sub.gemini_api_key}
                                                 onChange={(val) => onUpdate(idx, 'gemini_api_key', val)}
@@ -189,7 +187,7 @@ const MapReduceEditor = ({
                                         REDUCE
                                     </Badge>
                                     <Text fontSize="sm" fontWeight="normal" color="gray.600" _dark={{color: "gray.300"}}>
-                                        Aggregation Configuration
+                                        {t('reduceConfig')}
                                     </Text>
                                 </Flex>
                                 
@@ -197,20 +195,20 @@ const MapReduceEditor = ({
                                 
                                 <SimpleGrid columns={{base: 1, xl: 2}} spacing={3}>
                                     <FormControl>
-                                        <FormLabel fontSize="xs" mb={0} color="gray.500">Aggregation Model</FormLabel>
+                                        <FormLabel fontSize="xs" mb={0} color="gray.500">{t('model')}</FormLabel>
                                         <Select 
                                             size="xs" 
                                             value={summaryConf?.model || ''} 
                                             onChange={e => onUpdateSummary('model', e.target.value)}
                                             bg={selectBg}
-                                            placeholder="Use Default Stage Model"
+                                            placeholder={t('useSystemDefault')}
                                         >
                                             {Object.entries(geminiModels).map(([k,v])=> <option key={v} value={v}>{k}</option>)}
                                         </Select>
                                     </FormControl>
 
                                     <FormControl>
-                                        <FormLabel fontSize="xs" mb={0} color="gray.500">Prompt File</FormLabel>
+                                        <FormLabel fontSize="xs" mb={0} color="gray.500">{t('promptFile')}</FormLabel>
                                         <PromptManager 
                                             value={summaryConf?.prompt_file || 'summary_prompt_template.md'} 
                                             onChange={(newVal) => onUpdateSummary('prompt_file', newVal)}
@@ -219,7 +217,7 @@ const MapReduceEditor = ({
                                     </FormControl>
                                     
                                     <FormControl gridColumn={{xl: "span 2"}}>
-                                        <FormLabel fontSize="xs" mb={0} color="gray.500">API Key (Optional)</FormLabel>
+                                        <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
                                         <ApiKeySelector 
                                             value={summaryConf?.gemini_api_key || ''}
                                             onChange={(val) => onUpdateSummary('gemini_api_key', val)}

@@ -7,12 +7,14 @@ import {
     InputGroup, InputRightElement, Spinner, Center, Checkbox, Flex, StackDivider
 } from '@chakra-ui/react';
 import { AddIcon, DeleteIcon, CheckIcon, ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
+import { useLanguage } from '../../context/LanguageContext';
 
 const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) => {
     const [settings, setSettings] = useState(null);
     const [profiles, setProfiles] = useState({});
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const { t } = useLanguage();
     
     // Selection State for Bulk Delete
     const [selectedItems, setSelectedItems] = useState(new Set());
@@ -25,14 +27,11 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
 
     const toast = useToast();
     
-    // Styles - Khai bao toan bo Hook o day
     const borderColor = useColorModeValue('gray.200', 'gray.600');
     const listBg = useColorModeValue('white', 'gray.800');
     const itemHoverBg = useColorModeValue('gray.50', 'gray.700');
     const activeBg = useColorModeValue('blue.50', 'blue.900');
     const deleteBarBg = useColorModeValue('gray.100', 'gray.900');
-    
-    // // Cac bien mau cho phan bi loi truoc do
     const headerBg = useColorModeValue('white', 'gray.800');
     const formColBg = useColorModeValue('white', 'gray.900');
     const inputBg = useColorModeValue('gray.50', 'gray.800');
@@ -44,11 +43,11 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
             setSettings(res.data);
             setProfiles(res.data.gemini_profiles || {});
         } catch (err) {
-            toast({ title: "Load Failed", description: err.message, status: "error" });
+            toast({ title: t('loadFailed'), description: err.message, status: "error" });
         } finally {
             setLoading(false);
         }
-    }, [isTestMode, toast]);
+    }, [isTestMode, toast, t]);
 
     useEffect(() => {
         if (isOpen) {
@@ -71,7 +70,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
         setFormKey(key); 
     };
 
-    // Checkbox Logic
     const toggleSelection = (name) => {
         const newSet = new Set(selectedItems);
         if (newSet.has(name)) {
@@ -84,7 +82,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
 
     const handleBulkDelete = async () => {
         if (selectedItems.size === 0) return;
-        if(!window.confirm(`Are you sure you want to delete ${selectedItems.size} selected profiles?`)) return;
+        if(!window.confirm(`${t('deleteFilesConfirm')} (${selectedItems.size})`)) return;
 
         const newProfiles = { ...profiles };
         selectedItems.forEach(name => {
@@ -94,7 +92,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
         await saveProfiles(newProfiles);
         setSelectedItems(new Set());
         
-        // Neu dang edit profile bi xoa thi reset form
         if (editingKey && selectedItems.has(editingKey)) {
             resetForm();
         }
@@ -102,13 +99,11 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
 
     const handleSaveClick = async () => {
         if (!formName.trim() || !formKey.trim()) {
-            toast({ title: "Name and Key are required", status: "warning" });
+            toast({ title: t('missingInfo'), status: "warning" });
             return;
         }
 
         const newProfiles = { ...profiles };
-        
-        // Rename logic: delete old key if name changed
         if (editingKey && editingKey !== formName) {
             delete newProfiles[editingKey];
         }
@@ -132,9 +127,9 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
             setProfiles(updatedProfiles);
             if (onProfilesChange) onProfilesChange(updatedProfiles);
             
-            toast({ title: "Profiles Updated", status: "success", duration: 2000 });
+            toast({ title: t('success'), status: "success", duration: 2000 });
         } catch (err) {
-            toast({ title: "Save Error", description: err.message, status: "error" });
+            toast({ title: t('saveError'), description: err.message, status: "error" });
         } finally {
             setIsSaving(false);
         }
@@ -146,9 +141,8 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
         <Modal isOpen={isOpen} onClose={onClose} size="3xl" isCentered>
             <ModalOverlay backdropFilter="blur(2px)" />
             <ModalContent height="600px" display="flex" flexDirection="column" overflow="hidden">
-                {/* // Fix: Su dung bien headerBg da khai bao o tren */}
                 <ModalHeader fontWeight="normal" borderBottomWidth="1px" fontSize="lg" pb={3} bg={headerBg}>
-                    Manage Gemini API Keys
+                    {t('geminiKeyProfiles')}
                 </ModalHeader>
                 <ModalCloseButton />
                 
@@ -165,7 +159,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                         onClick={resetForm}
                                         isActive={!editingKey}
                                     >
-                                        Add New Profile
+                                        {t('addProfile')}
                                     </Button>
                                 </Box>
 
@@ -173,7 +167,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                 <Box flex="1" overflowY="auto">
                                     {profileKeys.length === 0 ? (
                                         <Center h="100px" flexDirection="column">
-                                            <Text fontSize="sm" color="gray.500">No profiles yet.</Text>
+                                            <Text fontSize="sm" color="gray.500">{t('noFilesFound')}</Text>
                                         </Center>
                                     ) : (
                                         <VStack spacing={0} align="stretch" divider={<StackDivider borderColor={borderColor} />}>
@@ -190,7 +184,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                                     <Checkbox 
                                                         isChecked={selectedItems.has(name)}
                                                         onChange={(e) => {
-                                                            e.stopPropagation(); // Ngan trigger edit
+                                                            e.stopPropagation();
                                                             toggleSelection(name);
                                                         }}
                                                         colorScheme="gray"
@@ -202,7 +196,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                                         spacing={0} 
                                                         flex="1" 
                                                         overflow="hidden"
-                                                        onClick={() => handleEditClick(name, profiles[name])} // Click text de edit
+                                                        onClick={() => handleEditClick(name, profiles[name])}
                                                     >
                                                         <Text fontWeight="medium" fontSize="sm" isTruncated w="full" color="gray.700" _dark={{color: "gray.200"}}>
                                                             {name}
@@ -217,7 +211,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                     )}
                                 </Box>
 
-                                {/* BULK DELETE BAR - Fixed at bottom of Left Column */}
+                                {/* BULK DELETE BAR */}
                                 {selectedItems.size > 0 && (
                                     <Flex 
                                         p={3} 
@@ -239,30 +233,28 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                             onClick={handleBulkDelete}
                                             fontSize="xs"
                                         >
-                                            
+                                            {t('delete')}
                                         </Button>
                                     </Flex>
                                 )}
                             </Box>
 
                             {/* RIGHT COLUMN: FORM */}
-                            {/* // Fix: Su dung bien formColBg */}
                             <Box w="60%" p={6} overflowY="auto" bg={formColBg}>
                                 <VStack spacing={5} align="stretch">
                                     <Box>
                                         <Text fontWeight="bold" fontSize="lg" mb={1}>
-                                            {editingKey ? 'Edit Profile' : 'Create New Profile'}
+                                            {editingKey ? t('edit') : t('addProfile')}
                                         </Text>
                                         <Text fontSize="sm" color="gray.500">
-                                            {editingKey ? `Update API Key for ${editingKey}` : 'Add a new Gemini API Key to your collection.'}
+                                            {t('manageKeys')}
                                         </Text>
                                     </Box>
                                     
                                     <Divider />
 
                                     <FormControl isRequired>
-                                        <FormLabel fontSize="sm" fontWeight="medium">Profile Name</FormLabel>
-                                        {/* // Fix: Su dung bien inputBg */}
+                                        <FormLabel fontSize="sm" fontWeight="medium">{t('profileName')}</FormLabel>
                                         <Input 
                                             placeholder="e.g. Production_Key_1" 
                                             value={formName} 
@@ -272,9 +264,8 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                     </FormControl>
 
                                     <FormControl isRequired>
-                                        <FormLabel fontSize="sm" fontWeight="medium">API Key</FormLabel>
+                                        <FormLabel fontSize="sm" fontWeight="medium">{t('apiKey')}</FormLabel>
                                         <InputGroup>
-                                            {/* // Fix: Su dung bien inputBg */}
                                             <Input 
                                                 type={showKey ? "text" : "password"} 
                                                 placeholder="AIzaSy..." 
@@ -292,13 +283,13 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                             </InputRightElement>
                                         </InputGroup>
                                         <Text fontSize="xs" color="gray.400" mt={2}>
-                                            Encrypt keys at rest (system dependant).
+                                            {t('encryptNote')}
                                         </Text>
                                     </FormControl>
 
                                     <Flex justify="flex-end" pt={6} gap={3}>
                                         {editingKey && (
-                                            <Button size="sm" fontWeight="normal" variant="ghost" onClick={resetForm}>Cancel</Button>
+                                            <Button size="sm" fontWeight="normal" variant="ghost" onClick={resetForm}>{t('cancel')}</Button>
                                         )}
                                         <Button 
                                             size="sm" fontWeight="normal" colorScheme="gray" bg="gray.800" color="white" _hover={{ bg: 'black' }}
@@ -307,7 +298,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                             leftIcon={<CheckIcon />}
                                             px={6}
                                         >
-                                            {editingKey ? 'Update' : 'Create'}
+                                            {editingKey ? t('save') : t('add')}
                                         </Button>
                                     </Flex>
                                 </VStack>
