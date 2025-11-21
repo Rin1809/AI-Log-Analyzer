@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timedelta
 from modules import state_manager
 
-# // Gioi han so dong log xu ly mot lan
-MAX_LOG_LINES_PER_RUN = 10000 
+# // Gioi han so dong log mac dinh xu ly mot lan
+DEFAULT_MAX_LOG_LINES = 10000 
 
 def try_parse_timestamp_flexible(line, current_year, tz):
 
@@ -37,9 +37,13 @@ def try_parse_timestamp_flexible(line, current_year, tz):
 
     return None
 
-def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=False):
-
-    logging.info(f"[{host_id}] Bat dau doc log tu '{file_path}'.")
+def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=False, custom_limit=None):
+    """
+    Doc log moi. Ho tro custom_limit de doc nhieu hon khi chay song song.
+    """
+    limit_to_use = custom_limit if custom_limit else DEFAULT_MAX_LOG_LINES
+    
+    logging.info(f"[{host_id}] Bat dau doc log tu '{file_path}' (Limit: {limit_to_use}).")
     try:
         tz = pytz.timezone(timezone_str)
         end_time = datetime.now(tz) 
@@ -51,8 +55,8 @@ def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=Fals
                 all_entries = f.readlines()
             start_time = end_time - timedelta(days=30) 
             
-            if len(all_entries) > MAX_LOG_LINES_PER_RUN:
-                 all_entries = all_entries[-MAX_LOG_LINES_PER_RUN:] 
+            if len(all_entries) > limit_to_use:
+                 all_entries = all_entries[-limit_to_use:] 
             return ("".join(all_entries), start_time, end_time, len(all_entries), end_time)
 
         # // PRODUCTION MODE LOGIC
@@ -67,7 +71,6 @@ def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=Fals
 
         new_entries = []
         
-
         last_valid_timestamp = start_time
         
         try:
@@ -84,14 +87,11 @@ def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=Fals
                 parsed_time = try_parse_timestamp_flexible(line, current_year, tz)
                 
                 if parsed_time:
-
                     if parsed_time > end_time + timedelta(days=1):
                          parsed_time = parsed_time.replace(year=current_year - 1)
-                    
                     current_log_time = parsed_time
                     last_valid_timestamp = parsed_time
                 else:
-
                     current_log_time = last_valid_timestamp if last_valid_timestamp > start_time else fallback_timestamp
 
                 # // So sanh voi moc thoi gian lan chay truoc
@@ -99,19 +99,18 @@ def read_new_log_entries(file_path, hours, timezone_str, host_id, test_mode=Fals
                     # // Luu tuple (timestamp, line) de sort va loc sau
                     new_entries.append((current_log_time, line))
 
- 
         new_entries.sort(key=lambda x: x[0])
 
         total_found = len(new_entries)
-        if total_found > MAX_LOG_LINES_PER_RUN:
-            logging.warning(f"[{host_id}] Log volume qua lon ({total_found}). Chi xu ly {MAX_LOG_LINES_PER_RUN} dong DAU TIEN.")
-            new_entries = new_entries[:MAX_LOG_LINES_PER_RUN]
+        if total_found > limit_to_use:
+            logging.warning(f"[{host_id}] Log volume qua lon ({total_found}). Chi xu ly {limit_to_use} dong DAU TIEN.")
+            new_entries = new_entries[:limit_to_use]
             
             # // Canh bao AI
             final_lines = [x[1] for x in new_entries]
-            final_lines.append(f"\n!!! WARNING: Con {total_found - MAX_LOG_LINES_PER_RUN} dong log nua chua xu ly. Se xu ly lan sau. !!!\n")
+            final_lines.append(f"\n!!! WARNING: Con {total_found - limit_to_use} dong log nua chua xu ly trong dot nay. !!!\n")
             
-            # // Timestamp moi la thoi gian cua dong log thu 10.000
+            # // Timestamp moi la thoi gian cua dong log cuoi cung duoc lay
             new_latest_timestamp = new_entries[-1][0]
         else:
             final_lines = [x[1] for x in new_entries]

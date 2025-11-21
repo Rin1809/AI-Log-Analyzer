@@ -30,7 +30,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="4.9.0")
+app = FastAPI(title="AI-log-analyzer API", version="5.0.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -54,6 +54,14 @@ def get_system_config_parser(test_mode: bool = False) -> configparser.ConfigPars
     return config
 
 # --- Pydantic Models ---
+
+class PipelineSubStage(BaseModel):
+    name: str = "Worker"
+    enabled: bool = True
+    model: str
+    prompt_file: str
+    gemini_api_key: Optional[str] = "" # API Key rieng cho worker nay
+
 class PipelineStage(BaseModel):
     name: str
     enabled: bool = True
@@ -61,6 +69,7 @@ class PipelineStage(BaseModel):
     prompt_file: str
     recipient_emails: str = ""
     trigger_threshold: int = 1
+    substages: List[PipelineSubStage] = [] # Support parallel workers for Stage 0
 
 class HostStatus(BaseModel):
     id: str
@@ -262,31 +271,9 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
                         logging.error(f"Failed to rename host dir: {e}")
                 current_report_dir = new_report_dir 
 
-            try:
-                old_pipeline_json = config.get(host_id, 'pipeline_config', fallback='[]')
-                old_pipeline = json.loads(old_pipeline_json)
-                new_pipeline = host_config.pipeline
-                
-                if os.path.exists(current_report_dir):
-                    for i, new_stage in enumerate(new_pipeline):
-                        if i < len(old_pipeline):
-                            old_name = old_pipeline[i].get('name')
-                            new_name = new_stage.name
-                            
-                            if old_name and new_name and old_name != new_name:
-                                old_slug = slugify(old_name)
-                                new_slug = slugify(new_name)
-                                
-                                if old_slug != new_slug:
-                                    old_path = os.path.join(current_report_dir, old_slug)
-                                    new_path = os.path.join(current_report_dir, new_slug)
-                                    
-                                    if os.path.exists(old_path):
-                                        try:
-                                            os.rename(old_path, new_path)
-                                        except: pass
-            except Exception as e:
-                logging.error(f"Error during directory rename check: {e}")
+
+
+
 
             old_enabled = config.get(host_id, 'enabled', fallback='True')
             

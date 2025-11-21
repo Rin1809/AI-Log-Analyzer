@@ -16,7 +16,13 @@ import {
 } from '@chakra-ui/icons';
 
 import PromptManager from '../components/hosts/PromptManager';
-import ApiKeySelector from '../components/hosts/ApiKeySelector'; // New import
+import ApiKeySelector from '../components/hosts/ApiKeySelector'; 
+import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
+
+
+
+
+
 
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
@@ -77,7 +83,8 @@ const HostFormPage = () => {
             model: defaultModel,
             prompt_file: pipeline.length === 0 ? 'prompt_template.md' : 'summary_prompt_template.md',
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
-            recipient_emails: ''
+            recipient_emails: '',
+            substages: [] // Init substages for Stage 0
         };
         setPipeline([...pipeline, newStage]);
     };
@@ -103,6 +110,35 @@ const HostFormPage = () => {
         newP[idx] = { ...newP[idx], [field]: value };
         setPipeline(newP);
     };
+    
+    // --- Substage Logic (Wrapper functions for Editor) ---
+    const handleAddSubstage = (stageIdx) => {
+        const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
+        const newP = [...pipeline];
+        if (!newP[stageIdx].substages) newP[stageIdx].substages = [];
+        
+        newP[stageIdx].substages.push({
+            name: `Worker ${newP[stageIdx].substages.length + 1}`,
+            enabled: true,
+            model: defaultModel,
+            prompt_file: 'prompt_template.md',
+            gemini_api_key: '' // Substage own key
+        });
+        setPipeline(newP);
+    };
+
+    const handleRemoveSubstage = (stageIdx, subIdx) => {
+         const newP = [...pipeline];
+         newP[stageIdx].substages.splice(subIdx, 1);
+         setPipeline(newP);
+    };
+
+    const handleUpdateSubstage = (stageIdx, subIdx, field, value) => {
+         const newP = [...pipeline];
+         newP[stageIdx].substages[subIdx] = { ...newP[stageIdx].substages[subIdx], [field]: value };
+         setPipeline(newP);
+    };
+
 
     // --- Fetch Data ---
     useEffect(() => {
@@ -136,7 +172,7 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1 },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, substages: [] },
             { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24 },
         ];
     }
@@ -462,6 +498,23 @@ const HostFormPage = () => {
                                                 </Button>
                                             </FormControl>
                                         </SimpleGrid>
+                                        
+
+                                        {idx === 0 && (
+                                            <Box mt={4} borderTopWidth="1px" borderColor="gray.100" pt={2}>
+                                                <Text fontSize="xs" fontWeight="normal" color="gray" mb={2}>
+                                                    Map-Reduce Architecture (Parallel Scaling)
+                                                </Text>
+                                                <MapReduceEditor 
+                                                    substages={stage.substages}
+                                                    onAdd={() => handleAddSubstage(idx)}
+                                                    onRemove={(subIdx) => handleRemoveSubstage(idx, subIdx)}
+                                                    onUpdate={(subIdx, f, v) => handleUpdateSubstage(idx, subIdx, f, v)}
+                                                    geminiModels={geminiModels}
+                                                    isTestMode={isTestMode}
+                                                />
+                                            </Box>
+                                        )}
                                         
                                         <Flex justify="flex-end" mt={3}>
                                             <HStack>
