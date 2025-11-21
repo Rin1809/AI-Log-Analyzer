@@ -144,7 +144,8 @@ const ReportsPage = () => {
         });
         onReportModalOpen();
     } catch (err) {
-        toast({ title: "Preview Error", description: err.message, status: "error", duration: 5000 });
+        // // Fix hardcoded string here
+        toast({ title: t('error'), description: err.message, status: "error", duration: 5000 });
     }
   };
 

@@ -64,7 +64,7 @@ const Header = () => {
           <HStack spacing={1} pr={4} borderRight="1px solid" borderColor={borderColor} mr={2}>
              <Logo />
              <Text fontWeight="normal" fontSize="2xl" letterSpacing="tight" display={{base: 'none', md: 'block'}}>
-                Log Analyzer<Text as="span" color="blue.400">.</Text>
+                AI Log Analyzer<Text as="span" color="blue.400">.</Text>
              </Text>
              <Icon as={ChevronRightIcon} color="gray.400" />
           </HStack>

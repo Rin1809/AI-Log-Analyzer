@@ -108,6 +108,14 @@ export const translations = {
     deleteReportConfirm: "Bạn có chắc muốn xóa báo cáo này? Thống kê dashboard sẽ bị ảnh hưởng.",
     deleteSuccess: "Đã xóa thành công",
     deleteFailed: "Xóa thất bại",
+    type: "Loại",
+    time: "Thời Gian",
+    allTypes: "Tất cả loại",
+    allStatus: "Tất cả trạng thái",
+    viewJson: "Xem JSON",
+    viewEmail: "Xem Email",
+    reportError: "Có Lỗi",
+    reportSuccess: "Thành Công",
 
     // --- Settings Page ---
     systemSettings: "Cài Đặt Hệ Thống",
@@ -256,6 +264,14 @@ export const translations = {
     deleteReportConfirm: "Are you sure you want to delete this report? Dashboard stats will be affected.",
     deleteSuccess: "Deleted successfully",
     deleteFailed: "Delete failed",
+    type: "Type",
+    time: "Time",
+    allTypes: "All Types",
+    allStatus: "All Status",
+    viewJson: "View JSON",
+    viewEmail: "View Email",
+    reportError: "Error",
+    reportSuccess: "Success",
 
     // --- Settings Page ---
     systemSettings: "System Settings",
@@ -404,6 +420,14 @@ export const translations = {
     deleteReportConfirm: "このレポートを削除してもよろしいですか？ダッシュボードの統計に影響します。",
     deleteSuccess: "削除しました",
     deleteFailed: "削除失敗",
+    type: "タイプ",
+    time: "時間",
+    allTypes: "すべてのタイプ",
+    allStatus: "すべてのステータス",
+    viewJson: "JSONを表示",
+    viewEmail: "メールを表示",
+    reportError: "エラー",
+    reportSuccess: "成功",
 
     // --- Settings Page ---
     systemSettings: "システム設定",

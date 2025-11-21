@@ -31,7 +31,7 @@ MODEL_LIST_FILE = "model_list.ini"
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="5.0.0")
+app = FastAPI(title="AI-log-analyzer API", version="5.0.1")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -402,8 +402,10 @@ async def delete_context_file(filename: str, test_mode: bool = False):
     sys_config = get_system_config_parser(test_mode)
     context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
     
+    # // FIX: Join path truoc khi verify de tranh path traversal error
+    full_path = os.path.join(context_dir, filename)
     try:
-        safe_path = verify_safe_path(context_dir, filename)
+        safe_path = verify_safe_path(context_dir, full_path)
     except (ValueError, PermissionError):
          raise HTTPException(403, "Invalid file path")
 
@@ -424,8 +426,10 @@ async def list_prompts(test_mode: bool = False):
 @app.get("/api/prompts/{filename}")
 async def get_prompt_content(filename: str, test_mode: bool = False):
     prompt_dir = get_prompts_dir(test_mode)
+    # // FIX: Join path truoc khi verify de tranh path traversal error
+    full_path = os.path.join(prompt_dir, filename)
     try:
-        safe_path = verify_safe_path(prompt_dir, filename)
+        safe_path = verify_safe_path(prompt_dir, full_path)
     except:
         raise HTTPException(403, "Access denied")
 
@@ -445,8 +449,10 @@ async def save_prompt(prompt: PromptFile, test_mode: bool = False):
     safe_name = os.path.basename(prompt.filename)
     if not safe_name.endswith('.md'): safe_name += '.md'
     
+    # // FIX: Join path truoc khi verify de tranh path traversal error
+    full_path = os.path.join(prompt_dir, safe_name)
     try:
-        safe_path = verify_safe_path(prompt_dir, safe_name)
+        safe_path = verify_safe_path(prompt_dir, full_path)
     except:
         raise HTTPException(403, "Invalid filename")
     
@@ -460,8 +466,10 @@ async def save_prompt(prompt: PromptFile, test_mode: bool = False):
 @app.delete("/api/prompts/{filename}")
 async def delete_prompt(filename: str, test_mode: bool = False):
     prompt_dir = get_prompts_dir(test_mode)
+    # // FIX: Join path truoc khi verify de tranh path traversal error
+    full_path = os.path.join(prompt_dir, filename)
     try:
-        file_path = verify_safe_path(prompt_dir, filename)
+        file_path = verify_safe_path(prompt_dir, full_path)
     except:
         raise HTTPException(403, "Access denied")
     
@@ -525,11 +533,15 @@ async def get_report_content(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
     
+   
+    full_path = os.path.join(base_report_dir, path)
     try:
-        safe_path = verify_safe_path(base_report_dir, path)
+        safe_path = verify_safe_path(base_report_dir, full_path)
     except (ValueError, PermissionError):
+
+
         try:
-             safe_path = verify_safe_path(base_report_dir, os.path.join(base_report_dir, path))
+             safe_path = verify_safe_path(base_report_dir, path)
         except:
              raise HTTPException(403, "Access denied: Invalid path.")
 
@@ -540,10 +552,18 @@ async def get_report_content(path: str, test_mode: bool = False):
 async def delete_report(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
+    
+
+
+    full_path = os.path.join(base_report_dir, path)
     try:
-        safe_path = verify_safe_path(base_report_dir, path)
+        safe_path = verify_safe_path(base_report_dir, full_path)
     except:
-        raise HTTPException(403, "Invalid path")
+        # Fallback
+        try:
+            safe_path = verify_safe_path(base_report_dir, path)
+        except:
+            raise HTTPException(403, "Invalid path")
 
     if not os.path.exists(safe_path): raise HTTPException(404, "Report file not found")
     try:
@@ -557,10 +577,15 @@ async def download_report(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
     
+
+    full_path = os.path.join(base_report_dir, path)
     try:
-        safe_path = verify_safe_path(base_report_dir, path)
+        safe_path = verify_safe_path(base_report_dir, full_path)
     except:
-        raise HTTPException(403, "Access denied")
+        try:
+            safe_path = verify_safe_path(base_report_dir, path)
+        except:
+            raise HTTPException(403, "Access denied")
 
     if not os.path.exists(safe_path): raise HTTPException(404, "Report file not found")
     return FileResponse(path=safe_path, filename=os.path.basename(safe_path), media_type='application/json')
@@ -569,10 +594,16 @@ async def download_report(path: str, test_mode: bool = False):
 async def preview_report_email(path: str, test_mode: bool = False):
     sys_settings = get_system_config_parser(test_mode)
     base_report_dir = sys_settings.get('System', 'report_directory', fallback='reports')
+    
+
+    full_path = os.path.join(base_report_dir, path)
     try:
-        safe_path = verify_safe_path(base_report_dir, path)
+        safe_path = verify_safe_path(base_report_dir, full_path)
     except:
-        raise HTTPException(403, "Access denied")
+         try:
+            safe_path = verify_safe_path(base_report_dir, path)
+         except:
+            raise HTTPException(403, "Access denied")
 
     if not os.path.exists(safe_path): raise HTTPException(404, "Report file not found")
     
