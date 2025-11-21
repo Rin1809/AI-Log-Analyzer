@@ -240,7 +240,7 @@ const SettingsPage = () => {
                     ) : (
                         Object.keys(settings.gemini_profiles).map(name => (
                             <WrapItem key={name}>
-                                <Tag size="md" borderRadius="full" variant="subtle" colorScheme="blue">
+                                <Tag size="md" borderRadius="full" variant="subtle" colorScheme="gray">
                                     <TagLabel>{name}</TagLabel>
                                     <TagRightIcon as={StarIcon} />
                                 </Tag>

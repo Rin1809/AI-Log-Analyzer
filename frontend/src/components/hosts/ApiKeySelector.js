@@ -22,7 +22,7 @@ import {
     useColorModeValue,
     Portal 
 } from '@chakra-ui/react';
-import { ChevronDownIcon, LockIcon, UnlockIcon, StarIcon, CheckIcon, SettingsIcon } from '@chakra-ui/icons';
+import { ChevronDownIcon, LockIcon, UnlockIcon, CheckIcon, SettingsIcon } from '@chakra-ui/icons';
 import ApiKeyManagerModal from './ApiKeyManagerModal';
 
 const ApiKeySelector = ({ value, onChange, isTestMode }) => {
@@ -35,8 +35,6 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
 
     const bg = useColorModeValue('white', 'gray.700');
     const iconColor = useColorModeValue('gray.400', 'gray.500');
-    const profileBg = useColorModeValue('blue.50', 'blue.900'); 
-
     
     const fetchSettings = useCallback(async () => {
         setLoading(true);
@@ -70,7 +68,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
         <Box position="relative">
             <InputGroup size="md">
                 <InputLeftElement pointerEvents="none">
-                    <Icon as={LockIcon} color={isProfile ? "blue.500" : iconColor} />
+                    <Icon as={LockIcon} color={isProfile ? "black.500" : iconColor} />
                 </InputLeftElement>
                 
                 {isProfile ? (
@@ -80,20 +78,24 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                         pr={2} 
                         py={2} 
                         borderWidth="1px" 
-                        borderColor={isProfileValid ? "blue.300" : "red.300"} 
+                        borderColor={isProfileValid ? "inherit" : "red.300"} 
                         borderRadius="md" 
-                        bg={profileBg} 
+                        bg={bg} 
                         display="flex"
                         alignItems="center"
                         h="40px"
                     >
-                        <Tag size="md" variant="solid" colorScheme="blue" borderRadius="full">
-                            <StarIcon mr={1} fontSize="xs"/>
-                            <TagLabel fontWeight="bold">{currentProfileName}</TagLabel>
+                        <Tag 
+                            size="md" 
+                            borderRadius="full" 
+                            variant="subtle" 
+                            colorScheme="gray"
+                        >
+                            <TagLabel fontWeight="medium">{currentProfileName}</TagLabel>
                             <TagCloseButton onClick={handleClearProfile} />
                         </Tag>
                         {!isProfileValid && (
-                             <Text fontSize="xs" color="red.500" ml={2} fontWeight="medium">(Profile not found)</Text>
+                             <Text fontSize="xs" color="red.500" ml={2} fontWeight="medium">(Not found)</Text>
                         )}
                     </Box>
                 ) : (
@@ -128,11 +130,12 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                             h="1.75rem" 
                             size="sm" 
                             rightIcon={<ChevronDownIcon />} 
-                            colorScheme={isProfile ? "blue" : "gray"}
-                            variant={isProfile ? "solid" : "outline"}
+                            colorScheme={isProfile ? "black" : "gray"}
+                            variant={isProfile ? "ghost" : "ghost"}
                             isLoading={loading}
                             fontSize="xs"
                             fontWeight="normal"
+                            color="gray.500"
                         >
                             Profile
                         </MenuButton>
@@ -152,7 +155,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                                     ))
                                 )}
                                 <MenuDivider />
-                                <MenuItem icon={<SettingsIcon />} onClick={onOpen} color="blue.500" fontWeight="medium">
+                                <MenuItem icon={<SettingsIcon />} onClick={onOpen} color="black.500" fontWeight="medium">
                                     Manage Profiles...
                                 </MenuItem>
                             </MenuList>
