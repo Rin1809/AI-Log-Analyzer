@@ -1,21 +1,13 @@
 import React from 'react';
 import { useLocation, Link as RouterLink } from 'react-router-dom';
 import {
-  Box,
-  Flex,
-  useColorModeValue,
-  IconButton,
-  useColorMode,
-  HStack,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  Text,
-  Icon
+  Box, Flex, useColorModeValue, IconButton, useColorMode,
+  HStack, Breadcrumb, BreadcrumbItem, BreadcrumbLink, Text, Icon,
+  Menu, MenuButton, MenuList, MenuItem, Button
 } from '@chakra-ui/react';
-import { SunIcon, MoonIcon, ChevronRightIcon } from '@chakra-ui/icons';
+import { SunIcon, MoonIcon, ChevronRightIcon, ChevronDownIcon } from '@chakra-ui/icons';
+import { useLanguage } from '../../context/LanguageContext';
 
-// Logo SVG :>
 const Logo = () => (
 <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="28px" height="28px"><g clip-path="url(#prefix__clip0_5_13)" fill-rule="evenodd" clip-rule="evenodd">
     <path d="M211.648 89.515h-76.651A57.707 57.707 0 0077.291 147.2v242.389a57.707 57.707 0 0057.706 57.707h242.411a57.707 57.707 0 0057.707-57.707V288.128l34.624-23.744v125.227a92.35 92.35 0 01-92.331 92.33H134.997a92.349 92.349 0 01-92.33-92.33v-242.39A92.336 92.336 0 0169.702 81.92a92.33 92.33 0 0165.295-27.05h96.96l-20.309 34.645z"/>
@@ -25,83 +17,59 @@ const Logo = () => (
 const ColorModeSwitcher = () => {
   const { toggleColorMode } = useColorMode();
   const SwitchIcon = useColorModeValue(MoonIcon, SunIcon);
-
   return (
-    <IconButton
-      size="sm"
-      fontSize="lg"
-      aria-label={`Switch color mode`}
-      variant="ghost"
-      color="current"
-      onClick={toggleColorMode}
-      icon={<SwitchIcon />}
-    />
+    <IconButton size="sm" fontSize="lg" aria-label={`Switch color mode`} variant="ghost" color="current" onClick={toggleColorMode} icon={<SwitchIcon />} />
   );
 };
 
-// // ham xu ly map path sang breadcrumb text
-const getBreadcrumbs = (pathname) => {
+const getBreadcrumbs = (pathname, t) => {
   const paths = pathname.split('/').filter(Boolean);
-  
-  if (paths.length === 0) return [{ label: 'Dashboard', to: '/' }];
+  if (paths.length === 0) return [{ label: t('dashboard'), to: '/' }];
 
   const breadcrumbs = [];
-  
-  // // logic map path thu cong de dep mat
   if (paths[0] === 'status') {
     breadcrumbs.push({ label: 'Modules', isCurrent: false });
-    breadcrumbs.push({ label: 'Host Status', to: '/status', isCurrent: paths.length === 1 });
-    
-    if (paths[1] === 'add') {
-      breadcrumbs.push({ label: 'New Host', isCurrent: true });
-    } else if (paths[1] === 'edit') {
-      breadcrumbs.push({ label: 'Configuration', isCurrent: true });
-    }
+    breadcrumbs.push({ label: t('hostStatus'), to: '/status', isCurrent: paths.length === 1 });
+    if (paths[1] === 'add') breadcrumbs.push({ label: t('add'), isCurrent: true });
+    else if (paths[1] === 'edit') breadcrumbs.push({ label: t('edit'), isCurrent: true });
   } else if (paths[0] === 'reports') {
     breadcrumbs.push({ label: 'Modules', isCurrent: false });
-    breadcrumbs.push({ label: 'Security Reports', to: '/reports', isCurrent: true });
+    breadcrumbs.push({ label: t('generatedReports'), to: '/reports', isCurrent: true });
   } else if (paths[0] === 'settings') {
     breadcrumbs.push({ label: 'Management', isCurrent: false });
-    breadcrumbs.push({ label: 'System Settings', to: '/settings', isCurrent: true });
+    breadcrumbs.push({ label: t('settings'), to: '/settings', isCurrent: true });
   } else {
     breadcrumbs.push({ label: 'Page', isCurrent: false });
     breadcrumbs.push({ label: paths[0].charAt(0).toUpperCase() + paths[0].slice(1), isCurrent: true });
   }
-
   return breadcrumbs;
 };
 
 const Header = () => {
   const location = useLocation();
-  const breadcrumbs = getBreadcrumbs(location.pathname);
+  const { language, setLanguage, t } = useLanguage(); // Hook
+  const breadcrumbs = getBreadcrumbs(location.pathname, t);
 
   const headerBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
   const textColor = useColorModeValue('gray.600', 'gray.400');
   const activeColor = useColorModeValue('gray.800', 'white');
 
+  const langLabels = { vi: 'Tiếng Việt', en: 'English', ja: '日本語' };
+
   return (
-    <Box
-      as="header"
-      position="sticky"
-      top="0"
-      zIndex="10"
-      bg={headerBg}
-      px={6}
-      h={14} 
-      borderBottomWidth="1px"
-      borderColor={borderColor}
-      shadow="sm"
-    >
+    <Box as="header" position="sticky" top="0" zIndex="10" bg={headerBg} px={6} h={14} borderBottomWidth="1px" borderColor={borderColor} shadow="sm">
       <Flex h="100%" alignItems="center" justifyContent="space-between">
         <HStack spacing={2} alignItems="center">
           <HStack spacing={1} pr={4} borderRight="1px solid" borderColor={borderColor} mr={2}>
              <Logo />
-             <Text fontWeight="normal" fontSize="3xl" letterSpacing="tight">AI Log Analyzer<Text as="span" color="blue.400">.</Text></Text>
+             <Text fontWeight="normal" fontSize="2xl" letterSpacing="tight" display={{base: 'none', md: 'block'}}>
+                Log Analyzer<Text as="span" color="blue.400">.</Text>
+             </Text>
              <Icon as={ChevronRightIcon} color="gray.400" />
           </HStack>
 
-          <Breadcrumb separator="/" fontSize="sm" fontWeight="medium" color={textColor}>
+          <Breadcrumb separator="/" fontSize="sm" fontWeight="medium" color={textColor} display={{base: 'none', md: 'block'}}>
             {breadcrumbs.map((item, index) => (
               <BreadcrumbItem key={index} isCurrentPage={item.isCurrent}>
                 {item.to && !item.isCurrent ? (
@@ -109,16 +77,25 @@ const Header = () => {
                      {item.label}
                    </BreadcrumbLink>
                 ) : (
-                   <Text color={item.isCurrent ? activeColor : 'inherit'} fontWeight={item.isCurrent ? 'normal' : 'normal'}>
-                     {item.label}
-                   </Text>
+                   <Text color={item.isCurrent ? activeColor : 'inherit'}>{item.label}</Text>
                 )}
               </BreadcrumbItem>
             ))}
           </Breadcrumb>
         </HStack>
 
-        <Flex alignItems="center">
+        <Flex alignItems="center" gap={2}>
+           {/* Language Switcher */}
+           <Menu>
+            <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="xs" variant="outline" fontWeight="normal">
+                {langLabels[language]}
+            </MenuButton>
+            <MenuList minW="120px" zIndex={1500}>
+                <MenuItem onClick={() => setLanguage('vi')}>🇻🇳 Tiếng Việt</MenuItem>
+                <MenuItem onClick={() => setLanguage('en')}>🇺🇸 English</MenuItem>
+                <MenuItem onClick={() => setLanguage('ja')}>🇯🇵 日本語</MenuItem>
+            </MenuList>
+           </Menu>
           <ColorModeSwitcher />
         </Flex>
       </Flex>

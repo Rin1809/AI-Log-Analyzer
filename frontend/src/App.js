@@ -7,6 +7,7 @@ import HostStatusPage from './pages/HostStatusPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage'; 
 import HostFormPage from './pages/HostFormPage'; 
+import { LanguageProvider } from './context/LanguageContext';
 
 const theme = extendTheme({
   config: {
@@ -53,19 +54,20 @@ const theme = extendTheme({
 function App() {
   return (
     <ChakraProvider theme={theme}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<MainDashboard />} />
-            <Route path="status" element={<HostStatusPage />} />
-            {/* // route cho trang add/edit */}
-            <Route path="status/add" element={<HostFormPage />} />
-            <Route path="status/edit/:hostId" element={<HostFormPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <LanguageProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<MainDashboard />} />
+              <Route path="status" element={<HostStatusPage />} />
+              <Route path="status/add" element={<HostFormPage />} />
+              <Route path="status/edit/:hostId" element={<HostFormPage />} />
+              <Route path="reports" element={<ReportsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </LanguageProvider>
     </ChakraProvider>
   );
 }
