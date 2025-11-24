@@ -54,35 +54,39 @@ def get_attachments(config, host_section, system_settings):
              
     return attachments
 
-def resolve_api_key(raw_key, system_settings):
+def resolve_api_key_with_alias(raw_key, system_settings):
     """
-    Giai ma key neu la profile (bat dau bang profile:).
-    Clean key (strip) de tranh loi 400.
+    Giai ma key va tra ve ca Key that lan Alias (de tracking).
+    Return: (actual_key, alias_name)
     """
-    if not raw_key: return raw_key
+    if not raw_key: return ("", "Empty")
     
     clean_key = raw_key.strip()
-    if not clean_key: return ""
+    if not clean_key: return ("", "Empty")
 
     if clean_key.startswith('profile:'):
         profile_name = clean_key.split(':', 1)[1].strip()
         if system_settings.has_section('Gemini_Keys'):
-            return system_settings.get('Gemini_Keys', profile_name, fallback=clean_key).strip()
-        return clean_key # Fallback neu khong tim thay
+            real_key = system_settings.get('Gemini_Keys', profile_name, fallback=clean_key).strip()
+            return (real_key, f"Profile: {profile_name}")
+        return (clean_key, f"Unknown Profile: {profile_name}")
     
-    return clean_key
+    # Raw key -> Mask it for alias
+    masked = clean_key[:4] + "..." + clean_key[-4:] if len(clean_key) > 8 else "Raw Key"
+    return (clean_key, f"Key: {masked}")
 
 # --- WORKER FUNCTION (Executes inside thread) ---
-def process_chunk_worker(worker_config, chunk_content, host_section, bonus_context, system_settings, prompt_dir):
+def process_chunk_worker(worker_config, chunk_content, host_section, bonus_context, system_settings, prompt_dir, test_mode=False):
     """
     Worker function to process a log chunk.
+    Updated: Pass test_mode and alias.
     """
     worker_name = worker_config.get('name', 'Worker')
     model_name = worker_config.get('model')
     prompt_file_name = worker_config.get('prompt_file')
     raw_key = worker_config.get('gemini_api_key')
     
-    api_key = resolve_api_key(raw_key, system_settings)
+    api_key, key_alias = resolve_api_key_with_alias(raw_key, system_settings)
     prompt_file = os.path.join(prompt_dir, prompt_file_name)
     
     logging.info(f"[{host_section}] Worker '{worker_name}' processing {len(chunk_content)} chars...")
@@ -93,7 +97,9 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
         bonus_context, 
         api_key, 
         prompt_file, 
-        model_name
+        model_name,
+        key_alias=key_alias,
+        test_mode=test_mode
     )
     
     if "Gemini blocked response" in result or "Fatal Gemini Error" in result:
@@ -106,7 +112,7 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
 
 # --- PIPELINE EXECUTION ---
 
-def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, system_settings, test_mode=False):
+def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_key, system_settings, test_mode=False):
     """
     Stage 0: RAW LOG ANALYSIS (Parallel execution)
     """
@@ -120,13 +126,12 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     hostname = host_config.get(host_section, 'SysHostname')
     timezone = host_config.get(host_section, 'TimeZone', fallback='UTC')
     
-    # // Load chunk size logic
     try:
         chunk_size = host_config.getint(host_section, 'chunk_size')
     except (configparser.NoOptionError, ValueError):
         chunk_size = host_config.getint(host_section, 'ChunkSize', fallback=DEFAULT_CHUNK_SIZE)
     
-    logging.info(f"[{host_section}] Using Chunk Size: {chunk_size} (Default: {DEFAULT_CHUNK_SIZE})")
+    logging.info(f"[{host_section}] Using Chunk Size: {chunk_size}")
     
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
@@ -152,14 +157,13 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     log_lines = full_log_content.splitlines()
     chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
     
-    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks of max {chunk_size}.")
+    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks.")
 
     active_workers_payload = []
 
     # // Main Worker (Chunk 0)
-    # // UPDATE: Check key rieng cua Stage truoc, neu ko co moi fallback ve global key (main_api_key)
     stage_specific_key_raw = stage_config.get('gemini_api_key')
-    final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else host_config.get(host_section, 'GeminiAPIKey')
+    final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else main_raw_api_key
 
     if len(chunks) > 0:
         chunk_str = "\n".join(chunks[0])
@@ -185,19 +189,18 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                     "content": chunk_str
                 })
         else:
-            pass # Drop excess chunks
+            pass 
 
     if not active_workers_payload:
-        logging.warning(f"[{host_section}] No chunks to process (Strange state).")
+        logging.warning(f"[{host_section}] No chunks to process.")
         return False
 
     # --- PARALLEL EXECUTION START ---
-    logging.info(f"[{host_section}] >>> Parallel Activation: Spawning {len(active_workers_payload)} threads (Max 5 concurrent)...")
+    logging.info(f"[{host_section}] >>> Parallel Activation: Spawning {len(active_workers_payload)} threads...")
 
     aggregated_results = []
     failed_workers = []
 
-    # Helper wrapper for thread mapping
     def _execute_task(task_payload):
         return process_chunk_worker(
             task_payload['config'],
@@ -205,10 +208,10 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
             host_section,
             bonus_context,
             system_settings,
-            prompt_dir
+            prompt_dir,
+            test_mode # Pass test_mode down
         )
 
-    # Use ThreadPoolExecutor for I/O bound tasks
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_worker = {
             executor.submit(_execute_task, task): task['config']['name'] 
@@ -222,61 +225,52 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                 aggregated_results.append(data)
                 logging.info(f"[{host_section}] Worker '{worker_name}' finished successfully.")
             except Exception as exc:
-                logging.error(f"[{host_section}] Worker '{worker_name}' failed with exception: {exc}")
+                logging.error(f"[{host_section}] Worker '{worker_name}' failed: {exc}")
                 failed_workers.append(worker_name)
 
-    # Sort results to maintain order (Main -> Sub1 -> Sub2...) based on payload order if needed, 
-    # but for Map-Reduce usually order doesn't strictly matter as long as labeled.
-    # However, let's keep it simple.
-
     if failed_workers:
-        logging.error(f"[{host_section}] Critical: One or more workers failed ({failed_workers}). Aborting to prevent partial data.")
+        logging.error(f"[{host_section}] Critical: Workers failed ({failed_workers}). Aborting.")
         return False
     # --- PARALLEL EXECUTION END ---
 
-    # --- REDUCE STEP (SUMMARY SUBSTAGE) ---
+    # --- REDUCE STEP ---
     final_markdown = ""
     final_stats = {}
     
     if len(aggregated_results) == 1:
-        # Case simple: Chi co Main Worker
         raw_text = aggregated_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     else:
-        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce) for {len(aggregated_results)} outputs...")
-        
-        # Sort results by worker name to have deterministic order if possible, or just join
-        # Just join them clearly
+        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce)...")
         combined_inputs = []
         for res in aggregated_results:
             combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
         full_combined_text = "\n\n".join(combined_inputs)
 
         summary_conf = stage_config.get('summary_conf') or {}
-        
         reduce_model = summary_conf.get('model') or stage_config.get('model')
         reduce_prompt_file_name = summary_conf.get('prompt_file') or 'summary_prompt_template.md'
         reduce_prompt_file = os.path.join(prompt_dir, reduce_prompt_file_name)
         
         reduce_key_raw = summary_conf.get('gemini_api_key')
-        if not reduce_key_raw:
-             reduce_key_raw = host_config.get(host_section, 'GeminiAPIKey')
+        if not reduce_key_raw: reduce_key_raw = main_raw_api_key
         
-        reduce_api_key = resolve_api_key(reduce_key_raw, system_settings)
+        reduce_api_key, reduce_alias = resolve_api_key_with_alias(reduce_key_raw, system_settings)
 
-        # Goi AI Reduce
         reduce_result = gemini_analyzer.analyze_with_gemini(
             f"{host_section}_SummarySubstage",
             full_combined_text,
             bonus_context,
             reduce_api_key,
             reduce_prompt_file,
-            reduce_model
+            reduce_model,
+            key_alias=reduce_alias,
+            test_mode=test_mode
         )
         
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
-            logging.error(f"[{host_section}] SummarySubstage Failed. Fallback to concatenation.")
+            logging.error(f"[{host_section}] SummarySubstage Failed.")
             final_stats = {"total_blocked_events": 0, "alerts_count": 0, "fallback": True}
             final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n"
             for res in aggregated_results:
@@ -284,13 +278,11 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
         else:
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
-            
             if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
                 final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
             if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
                 final_stats["alerts_count"] = final_stats["total_alerts_period"]
 
-    # --- SAVE REPORT ---
     report_data = {
         "hostname": hostname, 
         "analysis_start_time": start_time.isoformat(), 
@@ -304,13 +296,10 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
-    if not report_file: 
-        logging.error(f"[{host_section}] Failed to save report JSON. Rolling back state.")
-        return False
+    if not report_file: return False
 
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
-    logging.info(f"[{host_section}] State committed. Log pointer updated to {candidate_timestamp}")
-
+    
     # Send Email
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
@@ -340,21 +329,18 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
 
     return True
 
-def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, api_key, system_settings, test_mode=False):
+def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, main_raw_api_key, system_settings, test_mode=False):
 
     stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
     prev_stage_name = prev_stage_config.get('name', f'Stage_{current_stage_idx-1}')
     threshold = int(stage_config.get('trigger_threshold', 10))
     
-    logging.info(f"[{host_section}] >>> Checking trigger for Stage {current_stage_idx} ({stage_name}). Need {threshold} reports from {prev_stage_name}.")
+    logging.info(f"[{host_section}] >>> Checking trigger for Stage {current_stage_idx} ({stage_name}). Need {threshold} reports.")
 
-    # Check buffer
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     host_report_dir = os.path.join(report_dir, host_section)
-    
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
- 
     all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=False)
     
     reports_to_process = all_prev_reports[:threshold]
@@ -363,11 +349,9 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         logging.info(f"[{host_section}] Not enough reports ({len(reports_to_process)}/{threshold}). Waiting.")
         return False
         
-    if not reports_to_process:
-        logging.warning(f"[{host_section}] No reports found to aggregate.")
-        return False
+    if not reports_to_process: return False
 
-    logging.info(f"[{host_section}] Aggregating {len(reports_to_process)} reports for {stage_name}.")
+    logging.info(f"[{host_section}] Aggregating {len(reports_to_process)} reports.")
 
     combined_analysis, start_time, end_time = [], None, None
     for path in reports_to_process:
@@ -375,7 +359,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 combined_analysis.append(f"--- REPORT ({data['analysis_start_time']} -> {data['analysis_end_time']}) ---\n{data['analysis_details_markdown']}")
-                
                 st = datetime.fromisoformat(data['analysis_start_time'])
                 et = datetime.fromisoformat(data['analysis_end_time'])
                 if not start_time or st < start_time: start_time = st
@@ -391,14 +374,16 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     content_to_analyze = "\n\n".join(combined_analysis)
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
     
-    # // Logic chon key: Stage Key > Global Key (passed as api_key arg)
     stage_key_raw = stage_config.get('gemini_api_key')
-    if stage_key_raw and stage_key_raw.strip():
-        final_api_key = resolve_api_key(stage_key_raw, system_settings)
-    else:
-        final_api_key = api_key
+    final_key_raw = stage_key_raw if stage_key_raw and stage_key_raw.strip() else main_raw_api_key
+    
+    final_api_key, key_alias = resolve_api_key_with_alias(final_key_raw, system_settings)
 
-    result_raw = gemini_analyzer.analyze_with_gemini(host_section, content_to_analyze, bonus_context, final_api_key, prompt_file, model_name)
+    result_raw = gemini_analyzer.analyze_with_gemini(
+        host_section, content_to_analyze, bonus_context, 
+        final_api_key, prompt_file, model_name,
+        key_alias=key_alias, test_mode=test_mode
+    )
     
     if "Gemini blocked response" in result_raw or "Fatal Gemini Error" in result_raw:
         logging.error(f"[{host_section}] Stage {current_stage_idx} AI Failed. Not saving.")
@@ -418,9 +403,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         "stage_index": current_stage_idx
     }
     
-    report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
+    report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
     
-
     recipients = stage_config.get('recipient_emails', '')
     if recipients:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
@@ -429,7 +413,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
             try:
                 tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'summary_email_template.html')
                 if not os.path.exists(tpl_path): tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'email_template.html')
-                
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
                 
                 diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
@@ -447,78 +430,49 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     start_time=start_time.strftime('%d-%m') if start_time else "?", 
                     end_time=end_time.strftime('%d-%m') if end_time else "?"
                 )
-                atts = reports_to_process 
-                
-                email_service.send_email(host_section, email_subject, body, smtp, recipients, diag, atts, logo_path=logo_path)
+                email_service.send_email(host_section, email_subject, body, smtp, recipients, diag, reports_to_process, logo_path=logo_path)
             except Exception as e: logging.error(f"Email error {stage_name}: {e}")
 
     return True
 
-# --- MAIN LOOP ---
-
 def process_host_pipeline(host_config, host_section, system_settings, test_mode=False):
-
     pipeline_json = host_config.get(host_section, 'pipeline_config', fallback='[]')
-    try:
-        pipeline = json.loads(pipeline_json)
-    except:
-        logging.error(f"[{host_section}] Invalid pipeline config.")
-        return
+    try: pipeline = json.loads(pipeline_json)
+    except: return
 
-    if not pipeline:
-        logging.warning(f"[{host_section}] Empty pipeline.")
-        return
+    if not pipeline: return
         
-    raw_api_key = host_config.get(host_section, 'GeminiAPIKey', fallback='')
-    if not raw_api_key or "YOUR_API_KEY" in raw_api_key: return
-
-    api_key = resolve_api_key(raw_api_key, system_settings)
+    main_raw_api_key = host_config.get(host_section, 'GeminiAPIKey', fallback='')
+    if not main_raw_api_key or "YOUR_API_KEY" in main_raw_api_key: return
 
     now = datetime.now()
-    
     stage0_config = pipeline[0]
     if stage0_config.get('enabled', True):
         run_interval = host_config.getint(host_section, 'run_interval_seconds', fallback=3600)
         last_run = state_manager.get_last_cycle_run_timestamp(host_section, test_mode)
         
-        should_run_stage0 = False
-        if not last_run: should_run_stage0 = True
-        elif (now - last_run).total_seconds() >= run_interval: should_run_stage0 = True
-        
-        if should_run_stage0:
-            success = run_pipeline_stage_0(host_config, host_section, stage0_config, api_key, system_settings, test_mode)
-            
+        if not last_run or (now - last_run).total_seconds() >= run_interval:
+            success = run_pipeline_stage_0(host_config, host_section, stage0_config, main_raw_api_key, system_settings, test_mode)
             if success:
                 state_manager.save_last_cycle_run_timestamp(now, host_section, test_mode)
                 if len(pipeline) > 1:
                     curr_buff = state_manager.get_stage_buffer_count(host_section, 1, test_mode)
                     state_manager.save_stage_buffer_count(host_section, 1, curr_buff + 1, test_mode)
-                    logging.info(f"[{host_section}] Stage 0 Success. Stage 1 buffer: {curr_buff+1}")
-            else:
-                logging.warning(f"[{host_section}] Stage 0 Failed or Skipped. Will retry next cycle.")
 
     for i in range(1, len(pipeline)):
         current_stage = pipeline[i]
         if not current_stage.get('enabled', True): continue
-        
         prev_stage = pipeline[i-1]
-        
         threshold = int(current_stage.get('trigger_threshold', 10))
         current_buffer = state_manager.get_stage_buffer_count(host_section, i, test_mode)
         
         if current_buffer >= threshold:
-            logging.info(f"[{host_section}] Triggering Stage {i} ({current_stage['name']}). Buffer {current_buffer} >= {threshold}")
-            
-            success = run_pipeline_stage_n(host_config, host_section, i, current_stage, prev_stage, api_key, system_settings, test_mode)
-            
+            success = run_pipeline_stage_n(host_config, host_section, i, current_stage, prev_stage, main_raw_api_key, system_settings, test_mode)
             if success:
                 state_manager.save_stage_buffer_count(host_section, i, 0, test_mode)
-                
                 if i + 1 < len(pipeline):
                     next_buff = state_manager.get_stage_buffer_count(host_section, i+1, test_mode)
                     state_manager.save_stage_buffer_count(host_section, i+1, next_buff + 1, test_mode)
-                    logging.info(f"[{host_section}] Stage {i} Success. Stage {i+1} buffer: {next_buff+1}")
-
 
 def main():
     while True:
@@ -529,13 +483,9 @@ def main():
             for sec in [s for s in host_conf.sections() if s.startswith(('Firewall_', 'Host_'))]:
                 if host_conf.getboolean(sec, 'enabled', fallback=True):
                     process_host_pipeline(host_conf, sec, sys_conf)
-                    
-            sleep_time = sys_conf.getint('System', 'scheduler_check_interval_seconds', fallback=60)
-            logging.info(f"Scheduler sleeping {sleep_time}s...")
-            time.sleep(sleep_time)
-            
+            time.sleep(sys_conf.getint('System', 'scheduler_check_interval_seconds', fallback=60))
         except Exception as e:
-            logging.error(f"Main Loop Error: {e}", exc_info=True)
+            logging.error(f"Main Loop Error: {e}")
             time.sleep(60)
 
 if __name__ == "__main__":

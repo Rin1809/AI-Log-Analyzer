@@ -44,7 +44,12 @@ const MainDashboard = () => {
     
     const [statusData, setStatusData] = useState([]);
     const [reports, setReports] = useState([]);
-    const [dashboardStats, setDashboardStats] = useState({ total_raw_logs: 0, total_analyzed_logs: 0, total_api_calls: 0 });
+    const [dashboardStats, setDashboardStats] = useState({ 
+        total_raw_logs: 0, 
+        total_analyzed_logs: 0, 
+        total_api_calls: 0,
+        api_usage_breakdown: {} 
+    });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     
@@ -95,6 +100,7 @@ const MainDashboard = () => {
     useEffect(() => {
         setStatusData([]);
         setReports([]);
+        setDashboardStats({ total_raw_logs: 0, total_analyzed_logs: 0, total_api_calls: 0, api_usage_breakdown: {} });
         isInitialLoad.current = true;
         
         fetchData(isTestMode);
@@ -110,29 +116,6 @@ const MainDashboard = () => {
         );
     }, [statusData, filters.hostname]);
 
-    const filteredReports = useMemo(() => {
-        return reports.filter(r => {
-            if (filters.hostname && !r.hostname.toLowerCase().includes(filters.hostname.toLowerCase())) {
-                return false;
-            }
-            if (filters.startDate || filters.endDate) {
-                const rDate = new Date(r.generated_time);
-                const checkDate = new Date(rDate.getFullYear(), rDate.getMonth(), rDate.getDate());
-
-                if (filters.startDate) {
-                    const start = new Date(filters.startDate);
-                    const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-                    if (checkDate < startDateOnly) return false;
-                }
-                if (filters.endDate) {
-                    const end = new Date(filters.endDate);
-                    const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-                    if (checkDate > endDateOnly) return false;
-                }
-            }
-            return true;
-        });
-    }, [reports, filters]);
 
     const hostStatusData = useMemo(() => {
         if (!filteredStatus || filteredStatus.length === 0) return [];
@@ -142,39 +125,36 @@ const MainDashboard = () => {
         return [{ name: t('active'), value: active }, { name: t('inactive'), value: inactive }];
     }, [filteredStatus, t]);
 
-    const reportTypeData = useMemo(() => {
-        if (!filteredReports || filteredReports.length === 0) return [];
-        const types = filteredReports.reduce((acc, report) => {
-            let typeName = report.type.replace(/_/g, ' ');
-            typeName = typeName.charAt(0).toUpperCase() + typeName.slice(1);
-            acc[typeName] = (acc[typeName] || 0) + 1;
-            return acc;
-        }, {});
-        return Object.entries(types).map(([name, value]) => ({ name, value }));
-    }, [filteredReports]);
+    // REPLACED: Report Type Data -> API Usage Data
+    const apiKeyUsageData = useMemo(() => {
+        const breakdown = dashboardStats.api_usage_breakdown || {};
+        const entries = Object.entries(breakdown);
+        if (entries.length === 0) return [];
+        
+        // Convert to array format for PieChart
+        return entries.map(([name, value]) => ({ name, value }));
+    }, [dashboardStats.api_usage_breakdown]);
 
     const reportsByHostData = useMemo(() => {
-        if (!filteredReports || filteredReports.length === 0) return [];
-        const hosts = filteredReports.reduce((acc, report) => {
+        if (!reports || reports.length === 0) return [];
+        const hosts = reports.reduce((acc, report) => {
             acc[report.hostname] = (acc[report.hostname] || 0) + 1;
             return acc;
         }, {});
         return Object.entries(hosts).map(([name, value]) => ({ name, value }));
-    }, [filteredReports]);
+    }, [reports]);
 
 
     const lineChartData = useMemo(() => {
         if (!filteredStatus || filteredStatus.length === 0) return { data: [], keys: [] };
         
         const allActiveHostnames = filteredStatus.filter(s => s.is_enabled).map(s => s.hostname);
-
         const targetHostnames = selectedChartHosts.length > 0 
             ? allActiveHostnames.filter(h => selectedChartHosts.includes(h))
             : allActiveHostnames;
 
         let chartReports = reports.filter(r => {
             if (!targetHostnames.includes(r.hostname)) return false;
-            
             if (!r.summary_stats || 
                 (r.summary_stats.raw_log_count === undefined && r.summary_stats.total_blocked_events === undefined)) {
                 return false;
@@ -200,22 +180,14 @@ const MainDashboard = () => {
         chartReports.forEach(r => {
             const timestamp = new Date(r.generated_time).getTime();
             timestampSet.add(timestamp);
-            
-            if (!reportMap.has(timestamp)) {
-                reportMap.set(timestamp, []);
-            }
+            if (!reportMap.has(timestamp)) reportMap.set(timestamp, []);
             reportMap.get(timestamp).push(r);
         });
 
-        if (chartFilter.startDateTime) {
-            timestampSet.add(new Date(chartFilter.startDateTime).getTime());
-        }
-        if (chartFilter.endDateTime) {
-            timestampSet.add(new Date(chartFilter.endDateTime).getTime());
-        }
+        if (chartFilter.startDateTime) timestampSet.add(new Date(chartFilter.startDateTime).getTime());
+        if (chartFilter.endDateTime) timestampSet.add(new Date(chartFilter.endDateTime).getTime());
 
         const allTimestamps = Array.from(timestampSet).sort((a, b) => a - b);
-
         if (allTimestamps.length === 0 && targetHostnames.length > 0) return { data: [], keys: [] };
 
         const lastValues = targetHostnames.reduce((acc, host) => {
@@ -225,7 +197,6 @@ const MainDashboard = () => {
 
         const finalData = allTimestamps.map(ts => {
             const reportsAtTime = reportMap.get(ts) || [];
-            
             if (reportsAtTime.length > 0) {
                 reportsAtTime.forEach(report => {
                     let val = 0;
@@ -234,11 +205,8 @@ const MainDashboard = () => {
                     lastValues[report.hostname] = val;
                 });
             } else {
-                 targetHostnames.forEach(host => {
-                    lastValues[host] = 0; 
-                });
+                 targetHostnames.forEach(host => lastValues[host] = 0);
             }
-            
             const formattedTime = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
             return { time: formattedTime, ...lastValues };
         });
@@ -312,8 +280,9 @@ const MainDashboard = () => {
                     <InfoCard><PieChartDisplay data={hostStatusData} /></InfoCard>
                 </VStack>
                 <VStack align="stretch" spacing={3}>
-                    <Heading size="md" fontWeight="normal" textAlign="left">{t('reportTypes')}</Heading>
-                    <InfoCard><PieChartDisplay data={reportTypeData} /></InfoCard>
+                    {/* CHANGED: Title updated */}
+                    <Heading size="md" fontWeight="normal" textAlign="left">{t('apiKeyUsage')}</Heading>
+                    <InfoCard><PieChartDisplay data={apiKeyUsageData} /></InfoCard>
                 </VStack>
                 <VStack align="stretch" spacing={3}>
                     <Heading size="md" fontWeight="normal" textAlign="left">{t('reportsByHost')}</Heading>
@@ -326,31 +295,16 @@ const MainDashboard = () => {
                     <Heading size="md" fontWeight="normal">{t('logVolume')}</Heading>
                     <Spacer />
                     
-                    
                     <Menu closeOnSelect={false}>
-                        <MenuButton 
-                            as={Button} 
-                            rightIcon={<ChevronDownIcon />} 
-                            variant="outline" 
-                            size="sm" 
-                            bg={cardBg}
-                            fontWeight="normal"
-                        >
+                        <MenuButton as={Button} rightIcon={<ChevronDownIcon />} variant="outline" size="sm" bg={cardBg} fontWeight="normal">
                             {t('compareHosts')} ({selectedChartHosts.length === 0 ? 'All' : selectedChartHosts.length})
                         </MenuButton>
                         <MenuList zIndex={10} maxH="300px" overflowY="auto">
-                             <MenuItem onClick={clearChartHostSelection} fontSize="sm" color="blue.500">
-                                {t('showAll')}
-                             </MenuItem>
+                             <MenuItem onClick={clearChartHostSelection} fontSize="sm" color="blue.500">{t('showAll')}</MenuItem>
                              <MenuDivider />
                             {activeHostnamesForMenu.map(host => (
                                 <MenuItem key={host} as={Box}>
-                                    <Checkbox 
-                                        isChecked={selectedChartHosts.includes(host)}
-                                        onChange={() => toggleChartHost(host)}
-                                        width="100%"
-                                        size="sm"
-                                    >
+                                    <Checkbox isChecked={selectedChartHosts.includes(host)} onChange={() => toggleChartHost(host)} width="100%" size="sm">
                                         <Text fontSize="sm" ml={2} isTruncated maxW="200px">{host}</Text>
                                     </Checkbox>
                                 </MenuItem>
@@ -361,31 +315,13 @@ const MainDashboard = () => {
                         </MenuList>
                     </Menu>
 
-                    {/* Time Filter for Chart */}
                     <HStack spacing={2} bg={cardBg} p={2} borderRadius="md" borderWidth="1px" borderColor={borderColor}>
                         <Icon as={TimeIcon} color="gray.500" />
                         <Text fontSize="sm" fontWeight="normal" color="gray.500" whiteSpace="nowrap">{t('timeRange')}:</Text>
-                        
-                        <Input 
-                            type="datetime-local" 
-                            size="sm" 
-                            w="auto" 
-                            value={chartFilter.startDateTime}
-                            onChange={(e) => setChartFilter(prev => ({ ...prev, startDateTime: e.target.value }))}
-                            bg={inputBg}
-                        />
+                        <Input type="datetime-local" size="sm" w="auto" value={chartFilter.startDateTime} onChange={(e) => setChartFilter(prev => ({ ...prev, startDateTime: e.target.value }))} bg={inputBg} />
                         <Text fontSize="sm">-</Text>
-                        <Input 
-                            type="datetime-local" 
-                            size="sm" 
-                            w="auto" 
-                            value={chartFilter.endDateTime}
-                            onChange={(e) => setChartFilter(prev => ({ ...prev, endDateTime: e.target.value }))}
-                            bg={inputBg}
-                        />
-                        <Button size="sm" variant="ghost" onClick={handleResetChartFilter} title="Reset Chart Time">
-                            <Icon as={RepeatIcon} />
-                        </Button>
+                        <Input type="datetime-local" size="sm" w="auto" value={chartFilter.endDateTime} onChange={(e) => setChartFilter(prev => ({ ...prev, endDateTime: e.target.value }))} bg={inputBg} />
+                        <Button size="sm" variant="ghost" onClick={handleResetChartFilter} title="Reset Chart Time"><Icon as={RepeatIcon} /></Button>
                     </HStack>
                 </Flex>
 

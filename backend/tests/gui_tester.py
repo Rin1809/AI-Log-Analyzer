@@ -16,7 +16,8 @@ BACKEND_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.append(BACKEND_DIR)
 
 # // Import logic cot loi tu main app
-from main import run_pipeline_stage_0, run_pipeline_stage_n, resolve_api_key
+# // UPDATE: Da bo resolve_api_key vi main.py tu xu ly
+from main import run_pipeline_stage_0, run_pipeline_stage_n
 from modules import state_manager, utils
 
 # --- CONSTANTS ---
@@ -280,7 +281,6 @@ class LogAnalyzerTesterApp:
         # [NEW] Check Auto Reset
         if self.auto_reset_var.get():
             logging.info(f"[Auto-Reset] Cleaning states for {host} to ensure fresh run...")
-            # Xóa timestamp và buffer count cũ để chạy lại từ đầu
             state_manager.reset_all_states(host, test_mode=True)
 
         # Reload config de dam bao moi nhat
@@ -289,14 +289,15 @@ class LogAnalyzerTesterApp:
         
         stage_conf = pipeline[stage_idx]
         
-        # Resolve API Key
+        # Get Raw API Key (Not Resolved yet)
         raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
-        api_key = resolve_api_key(raw_api_key, self.sys_config)
+        # UPDATE: pipeline function will handle resolution using resolve_api_key_with_alias
         
         try:
             if stage_idx == 0:
+                # UPDATE: Pass raw_api_key directly
                 success = run_pipeline_stage_0(
-                    self.config, host, stage_conf, api_key, self.sys_config, test_mode=True
+                    self.config, host, stage_conf, raw_api_key, self.sys_config, test_mode=True
                 )
                 if success:
                     logging.info(">>> Stage 0 SUCCESS.")
@@ -310,9 +311,10 @@ class LogAnalyzerTesterApp:
                     logging.info(f"Force Trigger: Hacking buffer count to {threshold + 1}")
                     state_manager.save_stage_buffer_count(host, stage_idx, threshold + 1, test_mode=True)
                 
+                # UPDATE: Pass raw_api_key directly
                 success = run_pipeline_stage_n(
                     self.config, host, stage_idx, stage_conf, prev_stage, 
-                    api_key, self.sys_config, test_mode=True
+                    raw_api_key, self.sys_config, test_mode=True
                 )
                 
                 if success:
@@ -405,7 +407,7 @@ class LogAnalyzerTesterApp:
                 failed += 1; continue
 
             raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
-            api_key = resolve_api_key(raw_api_key, self.sys_config)
+            # UPDATE: No resolving here, passing raw
 
             host_failed = False
 
@@ -414,7 +416,7 @@ class LogAnalyzerTesterApp:
             try:
                 logging.info(f"Running Stage 0...")
                 s0_success = run_pipeline_stage_0(
-                    self.config, host, pipeline[0], api_key, self.sys_config, test_mode=True
+                    self.config, host, pipeline[0], raw_api_key, self.sys_config, test_mode=True
                 )
                 if not s0_success:
                     logging.error("Stage 0 FAILED. Aborting host.")
@@ -435,7 +437,7 @@ class LogAnalyzerTesterApp:
                     
                     try:
                         sn_success = run_pipeline_stage_n(
-                            self.config, host, i, current, prev, api_key, self.sys_config, test_mode=True
+                            self.config, host, i, current, prev, raw_api_key, self.sys_config, test_mode=True
                         )
                         if not sn_success:
                             logging.error(f"Stage {i} FAILED.")

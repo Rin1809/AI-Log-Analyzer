@@ -1,6 +1,5 @@
 export const translations = {
   vi: {
-    // --- Navigation ---
     dashboard: "Tổng Quan",
     hostStatus: "Trạng Thái Host",
     generatedReports: "Báo Cáo",
@@ -8,8 +7,6 @@ export const translations = {
     help: "Trợ Giúp",
     modules: "Chức Năng",
     management: "Quản Lý",
-    
-    // --- Common Actions & States ---
     search: "Tìm kiếm...",
     loading: "Đang tải...",
     error: "Lỗi",
@@ -33,8 +30,6 @@ export const translations = {
     upload: "Tải lên",
     manage: "Quản lý",
     done: "Xong",
-
-    // --- Dashboard ---
     globalFilter: "Bộ Lọc Toàn Cục (Host & Ngày)",
     fromDate: "Từ Ngày",
     toDate: "Đến Ngày",
@@ -43,6 +38,7 @@ export const translations = {
     apiCalls: "Gemini API Calls",
     hostStatusTitle: "Tình Trạng Host",
     reportTypes: "Loại Báo Cáo",
+    apiKeyUsage: "Thống kê API Key", 
     reportsByHost: "Báo Cáo Theo Host",
     logVolume: "Phân Tích Lưu Lượng Log",
     compareHosts: "So Sánh Host",
@@ -50,8 +46,6 @@ export const translations = {
     showAll: "Hiện Tất Cả",
     active: "Hoạt động",
     inactive: "Ngừng",
-    
-    // --- Host Status Page ---
     hostname: "Tên Host",
     status: "Trạng Thái",
     lastRun: "Lần Chạy Cuối",
@@ -63,8 +57,6 @@ export const translations = {
     editConfig: "Sửa Cấu Hình",
     deleteHost: "Xóa Host",
     confirmDeletion: "Xác Nhận Xóa",
-    
-    // --- Host Form (Add/Edit) ---
     newHost: "Thêm Host Mới",
     editHost: "Sửa Host",
     basicInfo: "Thông Tin Cơ Bản",
@@ -98,8 +90,6 @@ export const translations = {
     useSystemDefault: "Dùng Mặc Định Hệ Thống",
     saveSuccess: "Đã lưu cấu hình thành công",
     saveError: "Lỗi khi lưu cấu hình",
-    
-    // --- Reports Page ---
     generatedReportsTitle: "Danh Sách Báo Cáo",
     filterByType: "Lọc Theo Loại",
     filterByStatus: "Lọc Theo Trạng Thái",
@@ -116,14 +106,12 @@ export const translations = {
     viewEmail: "Xem Email",
     reportError: "Có Lỗi",
     reportSuccess: "Thành Công",
-
-    // --- Settings Page ---
     systemSettings: "Cài Đặt Hệ Thống",
     defaultPaths: "Đường Dẫn Mặc Định",
     reportDirectory: "Thư Mục Báo Cáo",
     promptDirectory: "Thư Mục Prompt",
     contextDirectory: "Thư Mục Context",
-    logoPath: "Đường Dẫn Logo Email", // Added
+    logoPath: "Đường Dẫn Logo Email",
     emailServer: "Máy Chủ Email (SMTP)",
     activeSmtpProfile: "Profile SMTP Đang Dùng",
     attachContextFiles: "Đính Kèm File Context Vào Email",
@@ -138,8 +126,6 @@ export const translations = {
     addProfile: "Thêm Profile",
     none: "Không",
     settingsSaved: "Đã lưu cài đặt",
-    
-    // --- Modals (Key Manager, SMTP, Prompts) ---
     profileName: "Tên Profile",
     apiKey: "Khóa API",
     smtpServerAddress: "Địa Chỉ SMTP Server",
@@ -153,14 +139,11 @@ export const translations = {
     variables: "Biến Số:",
     enterEmail: "Nhập email...",
     enterKeyOrProfile: "Nhập API Key hoặc chọn Profile...",
-    
-    // --- Validation/Errors ---
     missingInfo: "Thiếu thông tin",
     fillAllFields: "Vui lòng điền đầy đủ các trường bắt buộc.",
     loadFailed: "Tải dữ liệu thất bại",
   },
   en: {
-    // --- Navigation ---
     dashboard: "Dashboard",
     hostStatus: "Host Status",
     generatedReports: "Reports",
@@ -168,8 +151,6 @@ export const translations = {
     help: "Help",
     modules: "Modules",
     management: "Management",
-
-    // --- Common Actions & States ---
     search: "Search...",
     loading: "Loading...",
     error: "Error",
@@ -193,8 +174,6 @@ export const translations = {
     upload: "Upload",
     manage: "Manage",
     done: "Done",
-
-    // --- Dashboard ---
     globalFilter: "Global Filter (Host & Date)",
     fromDate: "From Date",
     toDate: "To Date",
@@ -203,6 +182,7 @@ export const translations = {
     apiCalls: "Gemini API Calls",
     hostStatusTitle: "Host Status",
     reportTypes: "Report Types",
+    apiKeyUsage: "API Key Usage",
     reportsByHost: "Reports by Host",
     logVolume: "Log Volume Analysis",
     compareHosts: "Compare Hosts",
@@ -210,8 +190,6 @@ export const translations = {
     showAll: "Show All",
     active: "Active",
     inactive: "Inactive",
-
-    // --- Host Status Page ---
     hostname: "Hostname",
     status: "Status",
     lastRun: "Last Run",
@@ -223,8 +201,6 @@ export const translations = {
     editConfig: "Edit Configuration",
     deleteHost: "Delete Host",
     confirmDeletion: "Confirm Deletion",
-
-    // --- Host Form (Add/Edit) ---
     newHost: "New Host",
     editHost: "Edit Host",
     basicInfo: "Basic Information",
@@ -258,8 +234,6 @@ export const translations = {
     useSystemDefault: "Use System Default",
     saveSuccess: "Configuration saved successfully",
     saveError: "Error saving configuration",
-
-    // --- Reports Page ---
     generatedReportsTitle: "Generated Reports",
     filterByType: "Filter by Type",
     filterByStatus: "Filter by Status",
@@ -276,14 +250,12 @@ export const translations = {
     viewEmail: "View Email",
     reportError: "Error",
     reportSuccess: "Success",
-
-    // --- Settings Page ---
     systemSettings: "System Settings",
     defaultPaths: "Default Paths",
     reportDirectory: "Report Directory",
     promptDirectory: "Prompt Directory",
     contextDirectory: "Context Directory",
-    logoPath: "Email Logo Path", // Added
+    logoPath: "Email Logo Path",
     emailServer: "Email Server (SMTP)",
     activeSmtpProfile: "Active SMTP Profile",
     attachContextFiles: "Attach Context Files to Email",
@@ -298,8 +270,6 @@ export const translations = {
     addProfile: "Add Profile",
     none: "None",
     settingsSaved: "Settings saved",
-
-    // --- Modals ---
     profileName: "Profile Name",
     apiKey: "API Key",
     smtpServerAddress: "SMTP Server Address",
@@ -313,14 +283,11 @@ export const translations = {
     variables: "Variables:",
     enterEmail: "Enter email...",
     enterKeyOrProfile: "Enter Raw API Key or Select Profile...",
-    
-    // --- Validation/Errors ---
     missingInfo: "Missing Information",
     fillAllFields: "Please fill in all required fields.",
     loadFailed: "Failed to load data",
   },
   ja: {
-    // --- Navigation ---
     dashboard: "ダッシュボード",
     hostStatus: "ホスト状態",
     generatedReports: "レポート",
@@ -328,8 +295,6 @@ export const translations = {
     help: "ヘルプ",
     modules: "モジュール",
     management: "管理",
-
-    // --- Common Actions & States ---
     search: "検索...",
     loading: "読み込み中...",
     error: "エラー",
@@ -353,8 +318,6 @@ export const translations = {
     upload: "アップロード",
     manage: "管理",
     done: "完了",
-
-    // --- Dashboard ---
     globalFilter: "全体フィルター (ホスト & 日付)",
     fromDate: "開始日",
     toDate: "終了日",
@@ -363,6 +326,7 @@ export const translations = {
     apiCalls: "Gemini APIコール",
     hostStatusTitle: "ホストステータス",
     reportTypes: "レポートタイプ",
+    apiKeyUsage: "APIキー使用状況", 
     reportsByHost: "ホスト別レポート",
     logVolume: "ログボリューム分析",
     compareHosts: "ホスト比較",
@@ -370,8 +334,6 @@ export const translations = {
     showAll: "すべて表示",
     active: "有効",
     inactive: "無効",
-
-    // --- Host Status Page ---
     hostname: "ホスト名",
     status: "ステータス",
     lastRun: "最終実行",
@@ -383,8 +345,6 @@ export const translations = {
     editConfig: "設定を編集",
     deleteHost: "ホストを削除",
     confirmDeletion: "削除の確認",
-
-    // --- Host Form (Add/Edit) ---
     newHost: "新規ホスト",
     editHost: "ホスト編集",
     basicInfo: "基本情報",
@@ -418,8 +378,6 @@ export const translations = {
     useSystemDefault: "システムデフォルトを使用",
     saveSuccess: "設定を保存しました",
     saveError: "保存エラー",
-
-    // --- Reports Page ---
     generatedReportsTitle: "生成されたレポート",
     filterByType: "タイプでフィルタ",
     filterByStatus: "ステータスでフィルタ",
@@ -436,14 +394,12 @@ export const translations = {
     viewEmail: "メールを表示",
     reportError: "エラー",
     reportSuccess: "成功",
-
-    // --- Settings Page ---
     systemSettings: "システム設定",
     defaultPaths: "デフォルトパス",
     reportDirectory: "レポートディレクトリ",
     promptDirectory: "プロンプトディレクトリ",
     contextDirectory: "コンテキストディレクトリ",
-    logoPath: "メールロゴのパス", // Added
+    logoPath: "メールロゴのパス",
     emailServer: "メールサーバー (SMTP)",
     activeSmtpProfile: "使用中のSMTPプロファイル",
     attachContextFiles: "コンテキストファイルを添付",
@@ -458,8 +414,6 @@ export const translations = {
     addProfile: "プロファイル追加",
     none: "なし",
     settingsSaved: "設定を保存しました",
-
-    // --- Modals ---
     profileName: "プロファイル名",
     apiKey: "APIキー",
     smtpServerAddress: "SMTPサーバーアドレス",
@@ -473,8 +427,6 @@ export const translations = {
     variables: "変数:",
     enterEmail: "メールアドレスを入力...",
     enterKeyOrProfile: "APIキーまたはプロファイルを選択...",
-    
-    // --- Validation/Errors ---
     missingInfo: "情報不足",
     fillAllFields: "必須項目をすべて入力してください。",
     loadFailed: "読み込み失敗",

@@ -11,15 +11,12 @@ MAX_RETRIES = 3
 INITIAL_BACKOFF = 2
 
 # // Lock toan cuc cho che do Legacy (thu vien cu)
-# // Giup tranh race condition khi genai.configure() la global state
 _LEGACY_GLOBAL_LOCK = threading.Lock()
 
-def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, model_name):
+def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, model_name, key_alias="Unknown", test_mode=False):
     """
     Gui yeu cau phan tich toi Gemini.
-    Ho tro ca:
-    1. Modern Mode (genai.Client): Thread-safe, Parallel (Yeu cau google-generativeai >= 0.8.3)
-    2. Legacy Mode (genai.GenerativeModel): Serialized via Lock (Chay cham hon nhung an toan cho ban cu)
+    Added: key_alias & test_mode de tracking usage chinh xac.
     """
     if not content or not content.strip():
         logging.warning(f"[{host_id}] Noi dung trong, bo qua phan tich.")
@@ -47,9 +44,7 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
     # // Kiem tra xem co phai ban moi (ho tro Client) hay khong
     has_client_support = hasattr(genai, 'Client')
     
-    # // Safety settings (Format chung cho ca 2 phien ban tuong doi on dinh)
-    # // Ban cu dung Dict, ban moi dung List Dict. Ta dung List Dict vi ban cu van hieu duoc trong 1 so truong hop, 
-    # // hoac convert nhe o duoi
+    # // Safety settings
     safety_settings_modern = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -57,7 +52,6 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
     ]
     
-    # // Map cho ban cu qua (neu can)
     safety_settings_legacy = {
         'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
         'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
@@ -78,7 +72,10 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                 # --- MODERN MODE (THREAD SAFE) ---
                 from google.generativeai import types
                 client = genai.Client(api_key=api_key)
-                state_manager.increment_total_api_calls()
+                
+                # Tracking Usage voi Alias va Test Mode
+                logging.info(f"[{host_id}] Counting API usage for alias: {key_alias}")
+                state_manager.increment_api_usage(key_alias, test_mode)
                 
                 response = client.models.generate_content(
                     model=model_name,
@@ -96,11 +93,13 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
 
             else:
                 # --- LEGACY MODE (LOCKED) ---
-                # // Phai dung Lock de tranh Race Condition khi set api_key global
                 with _LEGACY_GLOBAL_LOCK:
                     genai.configure(api_key=api_key)
                     model = genai.GenerativeModel(model_name)
-                    state_manager.increment_total_api_calls()
+                    
+                    # Tracking Usage
+                    logging.info(f"[{host_id}] Counting API usage for alias: {key_alias}")
+                    state_manager.increment_api_usage(key_alias, test_mode)
                     
                     response = model.generate_content(
                         prompt,
@@ -108,7 +107,6 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                     )
                     
                     if not response.parts:
-                        # // Thu catch loi block cua ban cu
                         try:
                             if response.prompt_feedback and response.prompt_feedback.block_reason:
                                 return f"Gemini blocked response. Reason: {response.prompt_feedback.block_reason}"
