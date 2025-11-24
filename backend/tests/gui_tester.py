@@ -165,6 +165,11 @@ class LogAnalyzerTesterApp:
         # Options Row
         opt_frame = ttk.Frame(self.pipeline_frame)
         opt_frame.pack(fill=tk.X, pady=5)
+        
+        # [NEW FEATURE] Auto Reset Checkbox
+        self.auto_reset_var = tk.BooleanVar(value=True) # Mặc định là True để test lại từ đầu cho tiện
+        ttk.Checkbutton(opt_frame, text="Auto Reset State (Fresh Run)", variable=self.auto_reset_var).pack(side=tk.LEFT, padx=(0, 10))
+
         self.force_trigger_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(opt_frame, text="Force Trigger (Hack Buffer)", variable=self.force_trigger_var).pack(side=tk.LEFT)
         
@@ -272,6 +277,12 @@ class LogAnalyzerTesterApp:
     def _run_specific_stage_logic(self, host, stage_idx):
         logging.info(f"--- MANUAL RUN: {host} | STAGE {stage_idx} ---")
         
+        # [NEW] Check Auto Reset
+        if self.auto_reset_var.get():
+            logging.info(f"[Auto-Reset] Cleaning states for {host} to ensure fresh run...")
+            # Xóa timestamp và buffer count cũ để chạy lại từ đầu
+            state_manager.reset_all_states(host, test_mode=True)
+
         # Reload config de dam bao moi nhat
         self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
         pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))

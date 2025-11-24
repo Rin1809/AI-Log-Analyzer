@@ -28,7 +28,6 @@ def file_lock(file_path):
             break
             
         except OSError as e:
-            # Fix cho Windows: Errno 13 (PermissionError) xay ra khi file dang bi khoa hoac pending delete
             if e.errno == errno.EEXIST or (os.name == 'nt' and e.errno == 13):
                 
                 # Check timeout deadlock
@@ -46,7 +45,6 @@ def file_lock(file_path):
                 if time.time() - start_time > LOCK_TIMEOUT:
                     raise TimeoutError(f"Could not acquire lock for {file_path} after {LOCK_TIMEOUT}s")
                 
-                # Backoff random de tranh thundering herd (cac thread cung thuc day 1 luc)
                 time.sleep(random.uniform(0.05, 0.15))
             else:
                 raise
@@ -65,7 +63,6 @@ def file_lock(file_path):
             try:
                 os.remove(lock_file)
             except OSError:
-                # Tren Windows, doi khi xoa file vua dong se bi loi neu AV dang scan hoac I/O cham
                 pass
 
 def verify_safe_path(base_dir, requested_path):
