@@ -55,10 +55,6 @@ def get_attachments(config, host_section, system_settings):
     return attachments
 
 def resolve_api_key_with_alias(raw_key, system_settings):
-    """
-    Giai ma key va tra ve ca Key that lan Alias (de tracking).
-    Return: (actual_key, alias_name)
-    """
     if not raw_key: return ("", "Empty")
     
     clean_key = raw_key.strip()
@@ -71,15 +67,14 @@ def resolve_api_key_with_alias(raw_key, system_settings):
             return (real_key, f"Profile: {profile_name}")
         return (clean_key, f"Unknown Profile: {profile_name}")
     
-    # Raw key -> Mask it for alias
     masked = clean_key[:4] + "..." + clean_key[-4:] if len(clean_key) > 8 else "Raw Key"
     return (clean_key, f"Key: {masked}")
 
 # --- WORKER FUNCTION (Executes inside thread) ---
-def process_chunk_worker(worker_config, chunk_content, host_section, bonus_context, system_settings, prompt_dir, test_mode=False):
+def process_chunk_worker(worker_config, chunk_content, host_section, bonus_context_text, binary_files, system_settings, prompt_dir, test_mode=False):
     """
     Worker function to process a log chunk.
-    Updated: Pass test_mode and alias.
+    Updated: Nhan bonus_context_text va binary_files
     """
     worker_name = worker_config.get('name', 'Worker')
     model_name = worker_config.get('model')
@@ -94,12 +89,13 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
     result = gemini_analyzer.analyze_with_gemini(
         f"{host_section}_{worker_name}", 
         chunk_content, 
-        bonus_context, 
+        bonus_context_text, 
         api_key, 
         prompt_file, 
         model_name,
         key_alias=key_alias,
-        test_mode=test_mode
+        test_mode=test_mode,
+        context_file_paths=binary_files # Pass files here
     )
     
     if "Gemini blocked response" in result or "Fatal Gemini Error" in result:
@@ -113,9 +109,6 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
 # --- PIPELINE EXECUTION ---
 
 def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_key, system_settings, test_mode=False):
-    """
-    Stage 0: RAW LOG ANALYSIS (Parallel execution)
-    """
     stage_name = stage_config.get('name', 'Periodic')
     substages = stage_config.get('substages', [])
     
@@ -152,7 +145,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
         return True
 
-    bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
+    # --- UPDATED: Unpack tuple from context_loader ---
+    bonus_context_text, binary_files = context_loader.read_bonus_context_files(host_config, host_section)
 
     log_lines = full_log_content.splitlines()
     chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
@@ -195,7 +189,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         logging.warning(f"[{host_section}] No chunks to process.")
         return False
 
-    # --- PARALLEL EXECUTION START ---
     logging.info(f"[{host_section}] >>> Parallel Activation: Spawning {len(active_workers_payload)} threads...")
 
     aggregated_results = []
@@ -206,10 +199,11 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             task_payload['config'],
             task_payload['content'],
             host_section,
-            bonus_context,
+            bonus_context_text, # Pass text
+            binary_files,       # Pass files
             system_settings,
             prompt_dir,
-            test_mode # Pass test_mode down
+            test_mode
         )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -231,7 +225,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     if failed_workers:
         logging.error(f"[{host_section}] Critical: Workers failed ({failed_workers}). Aborting.")
         return False
-    # --- PARALLEL EXECUTION END ---
 
     # --- REDUCE STEP ---
     final_markdown = ""
@@ -258,15 +251,17 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         
         reduce_api_key, reduce_alias = resolve_api_key_with_alias(reduce_key_raw, system_settings)
 
+        # Reduce cung can biet ve binary files (neu muon)
         reduce_result = gemini_analyzer.analyze_with_gemini(
             f"{host_section}_SummarySubstage",
             full_combined_text,
-            bonus_context,
+            bonus_context_text,
             reduce_api_key,
             reduce_prompt_file,
             reduce_model,
             key_alias=reduce_alias,
-            test_mode=test_mode
+            test_mode=test_mode,
+            context_file_paths=binary_files
         )
         
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
@@ -300,7 +295,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     
-    # Send Email
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -372,7 +366,9 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     logo_path = system_settings.get('System', 'logo_path', fallback=None)
 
     content_to_analyze = "\n\n".join(combined_analysis)
-    bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
+
+    # --- UPDATED: Get tuple ---
+    bonus_context_text, binary_files = context_loader.read_bonus_context_files(host_config, host_section)
     
     stage_key_raw = stage_config.get('gemini_api_key')
     final_key_raw = stage_key_raw if stage_key_raw and stage_key_raw.strip() else main_raw_api_key
@@ -380,9 +376,10 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     final_api_key, key_alias = resolve_api_key_with_alias(final_key_raw, system_settings)
 
     result_raw = gemini_analyzer.analyze_with_gemini(
-        host_section, content_to_analyze, bonus_context, 
+        host_section, content_to_analyze, bonus_context_text, 
         final_api_key, prompt_file, model_name,
-        key_alias=key_alias, test_mode=test_mode
+        key_alias=key_alias, test_mode=test_mode,
+        context_file_paths=binary_files # Pass files here
     )
     
     if "Gemini blocked response" in result_raw or "Fatal Gemini Error" in result_raw:

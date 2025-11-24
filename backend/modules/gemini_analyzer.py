@@ -13,15 +13,37 @@ INITIAL_BACKOFF = 2
 # // Lock toan cuc cho che do Legacy (thu vien cu)
 _LEGACY_GLOBAL_LOCK = threading.Lock()
 
-def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, model_name, key_alias="Unknown", test_mode=False):
+def _upload_and_wait_file(path, host_id):
+    """Helper de upload file len Gemini va doi processing (neu can)."""
+    try:
+        logging.info(f"[{host_id}] Uploading file to Gemini: {os.path.basename(path)}...")
+        uploaded_file = genai.upload_file(path)
+        
+        # Doi file san sang (quan trong voi PDF lon)
+        while uploaded_file.state.name == "PROCESSING":
+            logging.info(f"[{host_id}] Waiting for file processing...")
+            time.sleep(2)
+            uploaded_file = genai.get_file(uploaded_file.name)
+            
+        if uploaded_file.state.name == "FAILED":
+            raise ValueError(f"File upload failed: {uploaded_file.state.name}")
+            
+        logging.info(f"[{host_id}] File uploaded: {uploaded_file.display_name} ({uploaded_file.uri})")
+        return uploaded_file
+    except Exception as e:
+        logging.error(f"[{host_id}] Error uploading context file '{path}': {e}")
+        return None
+
+def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, model_name, key_alias="Unknown", test_mode=False, context_file_paths=None):
     """
     Gui yeu cau phan tich toi Gemini.
-    Added: key_alias & test_mode de tracking usage chinh xac.
+    Ho tro File API cho PDF/Images.
     """
     if not content or not content.strip():
         logging.warning(f"[{host_id}] Noi dung trong, bo qua phan tich.")
         return "Không có dữ liệu nào để phân tích trong khoảng thời gian được chọn."
 
+    # 1. Chuan bi Prompt Text
     try:
         with open(prompt_file, 'r', encoding='utf-8') as f:
             prompt_template = f.read()
@@ -34,9 +56,9 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
 
     try:
         if is_summary_or_final:
-            prompt = prompt_template.format(reports_content=content, bonus_context=bonus_context)
+            prompt_text = prompt_template.format(reports_content=content, bonus_context=bonus_context)
         else:
-            prompt = prompt_template.format(logs_content=content, bonus_context=bonus_context)
+            prompt_text = prompt_template.format(logs_content=content, bonus_context=bonus_context)
     except KeyError as e:
         logging.error(f"[{host_id}] Loi placeholder trong prompt '{prompt_file}'. Chi tiet: {e}")
         return f"Lỗi cấu hình: Placeholder không đúng trong file prompt '{prompt_file}'."
@@ -61,6 +83,23 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
 
     logging.info(f"[{host_id}] Su dung Gemini model: '{model_name}' (Mode: {'Modern/Parallel' if has_client_support else 'Legacy/Serialized'})")
 
+    uploaded_files = []
+    
+    if context_file_paths:
+        try:
+            genai.configure(api_key=api_key)
+            for path in context_file_paths:
+                f_obj = _upload_and_wait_file(path, host_id)
+                if f_obj:
+                    uploaded_files.append(f_obj)
+        except Exception as e:
+            logging.error(f"[{host_id}] Loi cau hinh API Key de upload file: {e}")
+
+
+    request_contents = [prompt_text]
+    if uploaded_files:
+        request_contents.extend(uploaded_files)
+
     for attempt in range(MAX_RETRIES):
         try:
             if attempt > 0:
@@ -69,17 +108,15 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
             text_response = ""
 
             if has_client_support:
-                # --- MODERN MODE (THREAD SAFE) ---
                 from google.generativeai import types
                 client = genai.Client(api_key=api_key)
                 
-                # Tracking Usage voi Alias va Test Mode
                 logging.info(f"[{host_id}] Counting API usage for alias: {key_alias}")
                 state_manager.increment_api_usage(key_alias, test_mode)
                 
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
+                    contents=request_contents,
                     config=types.GenerateContentConfig(safety_settings=safety_settings_modern)
                 )
                 
@@ -102,7 +139,7 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                     state_manager.increment_api_usage(key_alias, test_mode)
                     
                     response = model.generate_content(
-                        prompt,
+                        request_contents,
                         safety_settings=safety_settings_legacy
                     )
                     
