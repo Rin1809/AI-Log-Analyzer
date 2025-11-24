@@ -36,6 +36,8 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
 
     const bg = useColorModeValue('white', 'gray.700');
     const iconColor = useColorModeValue('gray.400', 'gray.500');
+    // // Fix: Explicitly define menu background for Dark Mode
+    const menuBg = useColorModeValue('white', 'gray.800');
     
     // Fetch settings only once on mount
     const fetchSettings = useCallback(async () => {
@@ -142,7 +144,8 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
                             Profile
                         </MenuButton>
                         <Portal>
-                            <MenuList zIndex={2500}>
+                            {/* Fix: Added bg prop */}
+                            <MenuList zIndex={2500} bg={menuBg}>
                                 <MenuItem onClick={handleClearProfile} icon={<Icon as={LockIcon}/>}>
                                     Use Raw Key
                                 </MenuItem>

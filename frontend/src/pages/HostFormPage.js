@@ -20,6 +20,21 @@ import ApiKeySelector from '../components/hosts/ApiKeySelector';
 import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
 import { useLanguage } from '../context/LanguageContext';
 
+// --- CONSTANTS ---
+const DEFAULT_HOST_INFO = {
+    syshostname: '', 
+    logfile: '/var/log/filter.log', 
+    timezone: 'Asia/Ho_Chi_Minh',
+    run_interval_seconds: 3600, 
+    hourstoanalyze: 24, 
+    geminiapikey: '',
+    networkdiagram: '', 
+    smtp_profile: '', 
+    context_files: [],
+    chunk_size: 8000, 
+    enabled: 'True'
+};
+
 // --- HELPER: Deep Compare for Dirty Check ---
 const isObjectEqual = (obj1, obj2) => {
     return JSON.stringify(obj1) === JSON.stringify(obj2);
@@ -51,7 +66,6 @@ const StatusBadge = ({ isEnabled }) => {
 };
 
 // --- SUB-COMPONENT: PipelineStageCard (Memoized for Performance) ---
-// This ensures that when typing in Stage 0, Stage 1 doesn't re-render
 const PipelineStageCard = React.memo(({ 
     stage, idx, totalStages, 
     geminiModels, isTestMode, chunkSize, setBasicInfo,
@@ -185,10 +199,6 @@ const PipelineStageCard = React.memo(({
         </Box>
     );
 }, (prev, next) => {
-    // Custom compare function for React.memo
-    // Returns true if props are equal (do not re-render)
-    // We only care if 'stage' data, 'chunkSize' (for idx 0), or 'geminiModels' changed.
-    // We ignore function references since they change every render but do the same thing.
     return (
         prev.stage === next.stage &&
         prev.idx === next.idx &&
@@ -218,12 +228,8 @@ const HostFormPage = () => {
     const contextInputRef = useRef(null);
     const diagramInputRef = useRef(null);
 
-    const [basicInfo, setBasicInfo] = useState({
-        syshostname: '', logfile: '/var/log/filter.log', timezone: 'Asia/Ho_Chi_Minh',
-        run_interval_seconds: 3600, hourstoanalyze: 24, geminiapikey: '',
-        networkdiagram: '', smtp_profile: '', context_files: [],
-        chunk_size: 8000, enabled: 'True'
-    });
+    // FIX: Init using constant
+    const [basicInfo, setBasicInfo] = useState(DEFAULT_HOST_INFO);
 
     const [pipeline, setPipeline] = useState([]);
     const [geminiModels, setGeminiModels] = useState({});
@@ -276,7 +282,8 @@ const HostFormPage = () => {
         ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
     );
 
-    const { isOpen: isConfirmLeaveOpen, onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
+    // FIX: Removed unused 'isOpen' alias
+    const { onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
 
     useEffect(() => {
         if (blocker.state === 'blocked') {
@@ -391,7 +398,8 @@ const HostFormPage = () => {
                 } else {
                     const defPl = createDefaultPipeline(models.data);
                     setPipeline(defPl);
-                    setInitialBasicInfo(basicInfo);
+                    // FIX: Use DEFAULT_HOST_INFO constant to avoid dependency warning
+                    setInitialBasicInfo(DEFAULT_HOST_INFO);
                     setInitialPipeline(defPl);
                 }
             } catch (e) {
@@ -413,6 +421,23 @@ const HostFormPage = () => {
     const handleFileUpload = async (e, type) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        // // CLIENT SIDE VALIDATION
+        if (type === 'diagram') {
+            const allowedImages = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
+            if (!allowedImages.includes(ext)) {
+                 return toast({ title: t('error'), description: "Network Diagram must be an image (jpg, png, webp).", status: 'error' });
+            }
+        } else {
+            // Check blacklist CSV or allowlist for context
+            const allowedContext = ['pdf', 'txt', 'md', 'json', 'log', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif'];
+            if (!allowedContext.includes(ext)) {
+                 return toast({ title: t('error'), description: `File type .${ext} is not supported for context.`, status: 'error' });
+            }
+        }
+
         const formData = new FormData();
         formData.append('file', file);
 
@@ -715,7 +740,7 @@ const HostFormPage = () => {
                                             </Checkbox>
                                         )) : <Text fontSize="xs" color="gray.500">{t('noFilesFound')}</Text>}
                                     </Box>
-                                    <FormHelperText fontSize="xs">Hỗ trợ: PDF, TXT, MD, JSON, LOG, Ảnh.</FormHelperText>
+                                    <FormHelperText fontSize="xs">Hỗ trợ: PDF, TXT, MD, JSON, LOG, Ảnh. (Không hỗ trợ CSV)</FormHelperText>
                                 </FormControl>
                             </VStack>
                         </CardBody>

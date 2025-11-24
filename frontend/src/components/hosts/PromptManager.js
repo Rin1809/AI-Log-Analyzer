@@ -67,6 +67,9 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
     const borderColor = useColorModeValue('gray.200', 'gray.600');
     const hoverBorderColor = useColorModeValue('blue.400', 'blue.400');
     const bg = useColorModeValue('white', 'gray.700');
+    // // Fix: Explicitly define menu background for Dark Mode to prevent transparency
+    const menuBg = useColorModeValue('white', 'gray.800');
+    
     const editorBg = 'gray.900'; 
     const editorColor = 'gray.100';
 
@@ -197,7 +200,8 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                             </Text>
                         </HStack>
                     </MenuButton>
-                    <MenuList zIndex={15} maxH="300px" overflowY="auto">
+                    {/* Fix: Added bg prop here */}
+                    <MenuList zIndex={15} maxH="300px" overflowY="auto" bg={menuBg}>
                         {prompts.length === 0 && <MenuItem isDisabled>{t('noFilesFound')}</MenuItem>}
                         {prompts.map(p => (
                             <MenuItem key={p} onClick={() => onChange(p)} icon={<FileIcon color="gray.400"/>}>
@@ -241,7 +245,8 @@ const PromptManager = ({ value, onChange, isTestMode }) => {
                                 borderRadius="md"
                             />
                         </Tooltip>
-                        <MenuList zIndex={15}>
+                        {/* Fix: Added bg prop here */}
+                        <MenuList zIndex={15} bg={menuBg}>
                             <MenuItem icon={<AddIcon />} onClick={() => handleOpenEditor('create')}>
                                 {t('add')}
                             </MenuItem>

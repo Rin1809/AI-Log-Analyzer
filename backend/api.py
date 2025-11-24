@@ -28,6 +28,12 @@ SYSTEM_SETTINGS_FILE = "system_settings.ini"
 TEST_SYSTEM_SETTINGS_FILE = "system_settings_test.ini"
 MODEL_LIST_FILE = "model_list.ini"
 
+# // Explicit allowed extensions for context upload
+ALLOWED_CONTEXT_EXTENSIONS = {
+    '.pdf', '.txt', '.md', '.json', '.log',
+    '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif'
+}
+
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
@@ -321,7 +327,12 @@ async def upload_context_file(test_mode: bool = False, file: UploadFile = File(.
     context_dir = sys_config.get('System', 'context_directory', fallback='').strip()
     if not context_dir: raise HTTPException(400)
     os.makedirs(context_dir, exist_ok=True)
-    if file.filename.lower().endswith(('.png', '.jpg', '.jpeg')) and not file.content_type.startswith('image/'): raise HTTPException(400)
+    
+    # // STRICT EXTENSION CHECK
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_CONTEXT_EXTENSIONS:
+        raise HTTPException(400, detail=f"File type '{ext}' not allowed. Allowed: {', '.join(ALLOWED_CONTEXT_EXTENSIONS)}")
+
     path = os.path.join(context_dir, os.path.basename(file.filename))
     with open(path, "wb") as b: shutil.copyfileobj(file.file, b)
     return {"filename": file.filename, "path": path}
