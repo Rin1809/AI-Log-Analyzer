@@ -131,8 +131,11 @@ const MainDashboard = () => {
         const entries = Object.entries(breakdown);
         if (entries.length === 0) return [];
         
-        // Convert to array format for PieChart
-        return entries.map(([name, value]) => ({ name, value }));
+        // Convert to array format for PieChart AND Clean up "Profile: " string
+        return entries.map(([name, value]) => ({ 
+            name: name.replace('Profile: ', ''), // <--- SỬA TẠI ĐÂY: Xóa chữ "Profile: "
+            value 
+        }));
     }, [dashboardStats.api_usage_breakdown]);
 
     const reportsByHostData = useMemo(() => {
