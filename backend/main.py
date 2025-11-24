@@ -157,6 +157,10 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
     active_workers_payload = []
 
     # // Main Worker (Chunk 0)
+    # // UPDATE: Check key rieng cua Stage truoc, neu ko co moi fallback ve global key (main_api_key)
+    stage_specific_key_raw = stage_config.get('gemini_api_key')
+    final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else host_config.get(host_section, 'GeminiAPIKey')
+
     if len(chunks) > 0:
         chunk_str = "\n".join(chunks[0])
         active_workers_payload.append({
@@ -164,7 +168,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_api_key, 
                 "name": "Main_Worker",
                 "model": stage_config.get('model'),
                 "prompt_file": stage_config.get('prompt_file'),
-                "gemini_api_key": host_config.get(host_section, 'GeminiAPIKey')
+                "gemini_api_key": final_main_key_raw
             },
             "content": chunk_str
         })
@@ -387,7 +391,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     content_to_analyze = "\n\n".join(combined_analysis)
     bonus_context = context_loader.read_bonus_context_files(host_config, host_section)
     
-
+    # // Logic chon key: Stage Key > Global Key (passed as api_key arg)
     stage_key_raw = stage_config.get('gemini_api_key')
     if stage_key_raw and stage_key_raw.strip():
         final_api_key = resolve_api_key(stage_key_raw, system_settings)

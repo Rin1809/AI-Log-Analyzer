@@ -97,6 +97,7 @@ const HostFormPage = () => {
             model: defaultModel,
             prompt_file: pipeline.length === 0 ? 'prompt_template.md' : 'summary_prompt_template.md',
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
+            gemini_api_key: '',
             recipient_emails: '',
             substages: [], 
             summary_conf: {} 
@@ -191,8 +192,8 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, substages: [], summary_conf: {} },
-            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24 },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', substages: [], summary_conf: {} },
+            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '' },
         ];
     }
 
@@ -361,7 +362,7 @@ const HostFormPage = () => {
                                 </SimpleGrid>
                                 
                                 <FormControl isRequired>
-                                    <FormLabel>{t('geminiApiKey')}</FormLabel>
+                                    <FormLabel>{t('geminiApiKey')} (Default)</FormLabel>
                                     <ApiKeySelector 
                                         value={basicInfo.geminiapikey} 
                                         onChange={(val) => setBasicInfo({...basicInfo, geminiapikey: val})}
@@ -519,10 +520,17 @@ const HostFormPage = () => {
                                                 />
                                             </FormControl>
 
+                                            {/* Swapped: Notifications moved UP */}
+                                            <FormControl>
+                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
+                                                <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
+                                                    {t('manageEmails')} ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
+                                                </Button>
+                                            </FormControl>
+
                                             {idx === 0 ? (
                                                 <FormControl>
                                                     <FormLabel fontSize="xs" mb={0} color="gray.500">{t('chunkSize')}</FormLabel>
-                                                    {/* FIX: Use valString (first arg) to allow empty input without NaN */}
                                                     <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size} onChange={(valStr) => setBasicInfo({...basicInfo, chunk_size: valStr})}>
                                                         <NumberInputField />
                                                         <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
@@ -537,11 +545,14 @@ const HostFormPage = () => {
                                                 </FormControl>
                                             )}
                                             
-                                            <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
-                                                <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
-                                                    {t('manageEmails')} ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
-                                                </Button>
+                                            {/* Swapped: API Key moved DOWN and SPAN 2 */}
+                                            <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
+                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
+                                                <ApiKeySelector 
+                                                    value={stage.gemini_api_key || ''} 
+                                                    onChange={(val) => updateStage(idx, 'gemini_api_key', val)}
+                                                    isTestMode={isTestMode}
+                                                />
                                             </FormControl>
                                         </SimpleGrid>
                                         
