@@ -1,7 +1,7 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link as RouterLink } from 'react-router-dom';
 import { Box, VStack, Tooltip, IconButton, useColorModeValue } from '@chakra-ui/react';
-import { TimeIcon, ViewIcon, CopyIcon, SettingsIcon, QuestionOutlineIcon } from '@chakra-ui/icons';
+import { ViewIcon, CopyIcon, SettingsIcon, QuestionOutlineIcon, CheckCircleIcon } from '@chakra-ui/icons';
 import { useLanguage } from '../../context/LanguageContext'; 
 
 const Logo = () => (
@@ -16,11 +16,11 @@ const Sidebar = () => {
     color: useColorModeValue('blue.600', 'white'),
   };
   
-  const { t } = useLanguage(); // Hook
+  const { t } = useLanguage(); 
 
   const navItems = [
-    { label: t('dashboard'), to: '/', icon: <TimeIcon />, end: true },
-    { label: t('hostStatus'), to: '/status', icon: <ViewIcon /> },
+    { label: t('dashboard'), to: '/', icon: <ViewIcon />, end: true }, // Changed to ViewIcon (Dashboard)
+    { label: t('hostStatus'), to: '/status', icon: <CheckCircleIcon /> }, // Changed to CheckCircleIcon (Status)
     { label: t('generatedReports'), to: '/reports', icon: <CopyIcon /> },
     { label: t('settings'), to: '/settings', icon: <SettingsIcon />, disabled: false },
     { label: t('help'), to: '#', icon: <QuestionOutlineIcon />, disabled: true },
@@ -29,7 +29,17 @@ const Sidebar = () => {
   return (
     <Box as="nav" pos="fixed" top="0" left="0" h="100vh" w="80px" bg={sidebarBg} borderRight="1px" borderColor={borderColor} zIndex="sticky">
       <VStack p={2} spacing={5} align="center" mt={4}>
-        <Box boxSize="40px" mb={4}><Logo /></Box>
+        {/* Clickable Logo redirecting to Dashboard */}
+        <Box 
+            as={RouterLink} 
+            to="/" 
+            boxSize="40px" 
+            mb={4} 
+            _hover={{ opacity: 0.8, transform: 'scale(1.05)' }} 
+            transition="all 0.2s"
+        >
+            <Logo />
+        </Box>
 
         {navItems.map((item) => (
           <Tooltip key={item.to} label={item.label} placement="right" hasArrow bg="gray.600" color="white">

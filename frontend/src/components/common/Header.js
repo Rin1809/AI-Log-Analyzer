@@ -47,7 +47,7 @@ const getBreadcrumbs = (pathname, t) => {
 
 const Header = () => {
   const location = useLocation();
-  const { language, setLanguage, t } = useLanguage(); // Hook
+  const { language, setLanguage, t } = useLanguage(); 
   const breadcrumbs = getBreadcrumbs(location.pathname, t);
 
   const headerBg = useColorModeValue('white', 'gray.800');
@@ -61,9 +61,22 @@ const Header = () => {
     <Box as="header" position="sticky" top="0" zIndex="10" bg={headerBg} px={6} h={14} borderBottomWidth="1px" borderColor={borderColor} shadow="sm">
       <Flex h="100%" alignItems="center" justifyContent="space-between">
         <HStack spacing={2} alignItems="center">
-          <HStack spacing={1} pr={4} borderRight="1px solid" borderColor={borderColor} mr={2}>
+          
+          {/* Clickable Brand Area (Logo + Name) */}
+          <HStack 
+            spacing={1} 
+            pr={4} 
+            borderRight="1px solid" 
+            borderColor={borderColor} 
+            mr={2}
+            as={RouterLink}
+            to="/"
+            _hover={{ textDecoration: 'none', opacity: 0.8 }}
+            cursor="pointer"
+            userSelect="none"
+          >
              <Logo />
-             <Text fontWeight="normal" fontSize="2xl" letterSpacing="tight" display={{base: 'none', md: 'block'}}>
+             <Text fontWeight="normal" fontSize="2xl" letterSpacing="tight" display={{base: 'none', md: 'block'}} color={activeColor}>
                 AI Log Analyzer<Text as="span" color="blue.400">.</Text>
              </Text>
              <Icon as={ChevronRightIcon} color="gray.400" />
