@@ -4,19 +4,18 @@ import sys
 import os
 import configparser
 import threading
-import pytest
 import json
 import shutil
 from datetime import datetime
 import logging
 
 # --- SETUP PATH ---
-# Hack sys.path de import modules tu backend (thu muc cha)
+# // Hack sys.path de import modules tu backend (thu muc cha)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.append(BACKEND_DIR)
 
-# // Import resolve_api_key to fix profile key issues
+# // Import logic cot loi tu main app
 from main import run_pipeline_stage_0, run_pipeline_stage_n, resolve_api_key
 from modules import state_manager, utils
 
@@ -28,6 +27,7 @@ TEST_STATE_DIR = os.path.join(BACKEND_DIR, "states", "test")
 
 # --- LOGGING REDIRECT ---
 class TextHandler(logging.Handler):
+    """Redirect logging vao widget Text cua Tkinter."""
     def __init__(self, text_widget):
         super().__init__()
         self.text_widget = text_widget
@@ -44,12 +44,15 @@ class TextHandler(logging.Handler):
 class LogAnalyzerTesterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("AI Log Analyzer - Test Suite & MapReduce GUI")
-        self.root.geometry("1100x750")
+        self.root.title("AI Log Analyzer - Senior Dev Test Suite")
+        self.root.geometry("1200x800")
         
         self.config = configparser.ConfigParser(interpolation=None)
         self.sys_config = configparser.ConfigParser(interpolation=None)
         self.selected_host = tk.StringVar()
+        
+        # UI State for Pipeline Inspector
+        self.pipeline_stages_ui = [] 
         
         self.setup_ui()
         self.load_config()
@@ -63,26 +66,21 @@ class LogAnalyzerTesterApp:
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        # TAB 1: Auto Suite (New Feature)
+        # TAB 1: Auto Suite (Batch Test)
         self.tab_suite = ttk.Frame(notebook)
         notebook.add(self.tab_suite, text="Auto Test Suite")
         self.setup_suite_tab(self.tab_suite)
 
-        # TAB 2: Map-Reduce Simulation (Manual)
+        # TAB 2: Manual Simulator (Granular Control)
         self.tab_sim = ttk.Frame(notebook)
-        notebook.add(self.tab_sim, text="Manual Simulator")
+        notebook.add(self.tab_sim, text="Manual Simulator & Inspector")
         self.setup_sim_tab(self.tab_sim)
-
-        # TAB 3: Unit Tests
-        self.tab_unit = ttk.Frame(notebook)
-        notebook.add(self.tab_unit, text="Unit Tests")
-        self.setup_unit_tab(self.tab_unit)
 
         # Console Output (Shared)
         console_frame = ttk.LabelFrame(main_frame, text="Console Output", padding="5")
         console_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        self.console = scrolledtext.ScrolledText(console_frame, state='disabled', height=12, font=("Consolas", 9))
+        self.console = scrolledtext.ScrolledText(console_frame, state='disabled', height=15, font=("Consolas", 9))
         self.console.pack(fill=tk.BOTH, expand=True)
         
         # Redirect logging
@@ -92,7 +90,7 @@ class LogAnalyzerTesterApp:
         logging.getLogger().setLevel(logging.INFO)
 
     def setup_suite_tab(self, parent):
-        # Layout: Left (Controls) - Right (Summary/Info)
+        # Layout: Left (Controls) - Right (Info)
         paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
@@ -102,7 +100,7 @@ class LogAnalyzerTesterApp:
         paned.add(right_frame, weight=2)
 
         # Host Selection
-        ttk.Label(left_frame, text="Target Host(s):").pack(anchor="w")
+        ttk.Label(left_frame, text="Target Host(s) for Suite:").pack(anchor="w")
         self.suite_host_list = tk.Listbox(left_frame, height=15, exportselection=False, selectmode=tk.SINGLE)
         self.suite_host_list.pack(fill=tk.X, pady=5)
         
@@ -115,70 +113,87 @@ class LogAnalyzerTesterApp:
         ttk.Button(left_frame, text="RUN ALL HOSTS (Batch)", command=lambda: self.run_suite(target="all")).pack(fill=tk.X, pady=5)
         
         # Info
-        ttk.Label(right_frame, text="Suite Logic Description:", font=("Arial", 10, "bold")).pack(anchor="w")
+        ttk.Label(right_frame, text="Logic tự động chạy (Suite Logic):", font=("Arial", 10, "bold")).pack(anchor="w")
         info_text = (
-            "1. Stage 0 (Raw Log): Runs log_reader & gemini_analyzer (Stage 0).\n"
-            "2. Mock Trigger: Manually sets buffer count > threshold.\n"
-            "3. Stage N (Summary): Trigger downstream stages immediately.\n"
-            "4. Validation: Checks if JSON reports are generated.\n\n"
-            "* This replicates the old 'tester.py' automated logic."
+            "1. Init: Làm sạch folder reports & states (nếu tick chọn).\n"
+            "2. Stage 0: Chạy log reader & analyzer.\n"
+            "3. Mock Trigger: Tự động set buffer count > threshold để ép Stage sau chạy.\n"
+            "4. Stage N: Chạy logic tổng hợp.\n"
+            "5. Validation: Kiểm tra xem file report JSON có được sinh ra không.\n"
         )
-        lbl = ttk.Label(right_frame, text=info_text, justify=tk.LEFT, wraplength=400)
+        lbl = ttk.Label(right_frame, text=info_text, justify=tk.LEFT, wraplength=500)
         lbl.pack(anchor="w", pady=10)
 
     def setup_sim_tab(self, parent):
-        # Layout similar to before
+
+        
         paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
-        left_frame = ttk.Frame(paned, padding=5); paned.add(left_frame, weight=1)
-        right_frame = ttk.Frame(paned, padding=5); paned.add(right_frame, weight=2)
+        
+        col1 = ttk.Frame(paned, padding=5); paned.add(col1, weight=1)
+        col2 = ttk.Frame(paned, padding=5); paned.add(col2, weight=1)
+        col3 = ttk.Frame(paned, padding=5); paned.add(col3, weight=2)
 
-        ttk.Label(left_frame, text="Select Host:").pack(anchor="w")
-        self.host_listbox = tk.Listbox(left_frame, height=10, exportselection=False)
-        self.host_listbox.pack(fill=tk.X, pady=5)
+        # --- COL 1: Host Selection ---
+        ttk.Label(col1, text="1. Select Host:").pack(anchor="w")
+        self.host_listbox = tk.Listbox(col1, height=15, exportselection=False)
+        self.host_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
         self.host_listbox.bind('<<ListboxSelect>>', self.on_host_select)
 
-        btn_frame = ttk.LabelFrame(left_frame, text="Manual Controls", padding=5)
+        btn_frame = ttk.LabelFrame(col1, text="Global Actions", padding=5)
         btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="Reset States", command=self.reset_states).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Reload Config", command=self.load_config).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="Reset All States", command=self.reset_states).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="Reload Config File", command=self.load_config).pack(fill=tk.X, pady=2)
 
-        # Right Side
-        gen_frame = ttk.LabelFrame(right_frame, text="1. Log Injection", padding=5)
-        gen_frame.pack(fill=tk.X, pady=5)
-        f1 = ttk.Frame(gen_frame); f1.pack(fill=tk.X)
-        ttk.Label(f1, text="Lines:").pack(side=tk.LEFT)
-        self.log_count_var = tk.StringVar(value="5000")
-        ttk.Entry(f1, textvariable=self.log_count_var, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(gen_frame, text="Inject Logs", command=self.generate_fake_logs).pack(fill=tk.X, pady=5)
-
-        pipe_frame = ttk.LabelFrame(right_frame, text="2. Manual Pipeline Step-by-Step", padding=5)
-        pipe_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(pipe_frame, text="Run Stage 0 Only", command=lambda: self.run_manual_stage(0)).pack(fill=tk.X, pady=5)
+        # --- COL 2: Data Injection ---
+        gen_frame = ttk.LabelFrame(col2, text="2. Log Injection", padding=5)
+        gen_frame.pack(fill=tk.BOTH, expand=True)
         
-        f2 = ttk.Frame(pipe_frame); f2.pack(fill=tk.X, pady=5)
-        ttk.Label(f2, text="Stage Index:").pack(side=tk.LEFT)
-        self.stage_n_var = tk.StringVar(value="1")
-        ttk.Entry(f2, textvariable=self.stage_n_var, width=5).pack(side=tk.LEFT, padx=5)
+        ttk.Label(gen_frame, text="Lines to Inject:").pack(anchor="w")
+        self.log_count_var = tk.StringVar(value="1000")
+        ttk.Entry(gen_frame, textvariable=self.log_count_var).pack(fill=tk.X, pady=5)
+        
+        ttk.Button(gen_frame, text="Inject Fake Logs", command=self.generate_fake_logs).pack(fill=tk.X, pady=10)
+        
+        ttk.Label(gen_frame, text="Note: Inject log xong thì mới chạy Stage 0 được.\nLog sẽ được ghi vào file cấu hình trong 'LogFile'.", 
+                  font=("Arial", 8, "italic"), wraplength=150).pack(anchor="w", pady=10)
+
+        # --- COL 3: Pipeline Inspector ---
+        self.pipeline_frame = ttk.LabelFrame(col3, text="3. Pipeline Inspector & Manual Run", padding=5)
+        self.pipeline_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Options Row
+        opt_frame = ttk.Frame(self.pipeline_frame)
+        opt_frame.pack(fill=tk.X, pady=5)
         self.force_trigger_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f2, text="Force Trigger", variable=self.force_trigger_var).pack(side=tk.LEFT)
-        ttk.Button(pipe_frame, text="Run Stage N Only", command=self.run_manual_stage_n).pack(fill=tk.X, pady=2)
-
-    def setup_unit_tab(self, parent):
-        ttk.Label(parent, text="Available Unit Tests:").pack(anchor="w", pady=5)
-        self.test_listbox = tk.Listbox(parent, selectmode=tk.MULTIPLE, height=8)
-        self.test_listbox.pack(fill=tk.BOTH, expand=True, padx=5)
+        ttk.Checkbutton(opt_frame, text="Force Trigger (Hack Buffer)", variable=self.force_trigger_var).pack(side=tk.LEFT)
         
-        test_files = [f for f in os.listdir(CURRENT_DIR) if f.startswith("test_") and f.endswith(".py")]
-        for f in test_files: self.test_listbox.insert(tk.END, f)
+        # Scrollable container for dynamic buttons
+        self.stage_canvas = tk.Canvas(self.pipeline_frame)
+        self.scrollbar = ttk.Scrollbar(self.pipeline_frame, orient="vertical", command=self.stage_canvas.yview)
+        self.stage_scroll_frame = ttk.Frame(self.stage_canvas)
 
-        ttk.Button(parent, text="Run Selected Tests (Pytest)", command=self.run_pytest).pack(pady=10)
+        self.stage_scroll_frame.bind(
+            "<Configure>",
+            lambda e: self.stage_canvas.configure(scrollregion=self.stage_canvas.bbox("all"))
+        )
+        self.stage_canvas.create_window((0, 0), window=self.stage_scroll_frame, anchor="nw")
+        self.stage_canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.stage_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
 
     # --- LOGIC ---
 
     def load_config(self):
+        """Doc lai config va refresh UI."""
         self.host_listbox.delete(0, tk.END)
         self.suite_host_list.delete(0, tk.END)
+        
+        # Clean pipeline UI
+        for widget in self.stage_scroll_frame.winfo_children():
+            widget.destroy()
         
         if os.path.exists(TEST_CONFIG_FILE):
             self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
@@ -190,138 +205,114 @@ class LogAnalyzerTesterApp:
         else:
             logging.error(f"Config file missing: {TEST_CONFIG_FILE}")
 
+        # Setup Test Settings (System)
         if os.path.exists(TEST_SYS_SETTINGS):
             self.sys_config.read(TEST_SYS_SETTINGS, encoding='utf-8')
             if 'System' not in self.sys_config: self.sys_config.add_section('System')
             self.sys_config['System']['report_directory'] = TEST_REPORTS_DIR
+            # Ensure dirs exist
             os.makedirs(TEST_REPORTS_DIR, exist_ok=True)
+            os.makedirs(TEST_STATE_DIR, exist_ok=True)
 
     def on_host_select(self, event):
+        """Khi chon host, parse pipeline config va render nut bam."""
         selection = event.widget.curselection()
-        if selection: self.selected_host.set(event.widget.get(selection[0]))
-
-    # --- SUITE RUNNER LOGIC (THE OLD TESTER.PY SOUL) ---
-    def clean_environment(self):
-        logging.warning(">>> Cleaning up test environment (Reports & States)...")
-        if os.path.exists(TEST_REPORTS_DIR):
-            try: shutil.rmtree(TEST_REPORTS_DIR)
-            except: pass
-        if os.path.exists(TEST_STATE_DIR):
-            try: shutil.rmtree(TEST_STATE_DIR)
-            except: pass
-        os.makedirs(TEST_REPORTS_DIR, exist_ok=True)
-        os.makedirs(TEST_STATE_DIR, exist_ok=True)
-
-    def run_suite(self, target="all"):
-        hosts_to_run = []
+        if not selection: return
         
-        if target == "selected":
-            sel = self.suite_host_list.curselection()
-            if not sel: return messagebox.showwarning("Warning", "Select a host first!")
-            hosts_to_run.append(self.suite_host_list.get(sel[0]))
-        else:
-            hosts_to_run = [s for s in self.config.sections() if s.startswith(('Host_', 'Firewall_'))]
-
-        if not hosts_to_run: return messagebox.showerror("Error", "No hosts found to run.")
-
-        # Run in thread to prevent UI freeze
-        threading.Thread(target=self._suite_worker, args=(hosts_to_run,)).start()
-
-    def _suite_worker(self, hosts):
-        if self.clean_env_var.get():
-            self.clean_environment()
+        host = event.widget.get(selection[0])
+        self.selected_host.set(host)
+        
+        # Clear old UI
+        for widget in self.stage_scroll_frame.winfo_children():
+            widget.destroy()
             
-        # RE-READ CONFIG TO GET LATEST SETTINGS
+        # Parse Pipeline
+        pipeline_json = self.config.get(host, 'pipeline_config', fallback='[]')
+        try:
+            pipeline = json.loads(pipeline_json)
+        except Exception as e:
+            logging.error(f"Error parsing pipeline for {host}: {e}")
+            return
+            
+        if not pipeline:
+            ttk.Label(self.stage_scroll_frame, text="No pipeline configured.").pack(pady=10)
+            return
+            
+        # Render Stage Controls
+        for idx, stage in enumerate(pipeline):
+            frame = ttk.Frame(self.stage_scroll_frame, borderwidth=1, relief="solid", padding=5)
+            frame.pack(fill=tk.X, pady=5, padx=5)
+            
+            # Header line
+            header_frame = ttk.Frame(frame)
+            header_frame.pack(fill=tk.X)
+            
+            stage_name = stage.get('name', f'Stage {idx}')
+            lbl = ttk.Label(header_frame, text=f"Stage {idx}: {stage_name}", font=("Arial", 10, "bold"))
+            lbl.pack(side=tk.LEFT)
+            
+            # Detail line
+            details = f"Model: {stage.get('model', 'N/A')}"
+            if idx > 0:
+                details += f" | Trigger: {stage.get('trigger_threshold', 1)}"
+            ttk.Label(frame, text=details, font=("Arial", 8)).pack(anchor="w")
+            
+            # Action Button
+            btn_text = "RUN LOG SCAN" if idx == 0 else "RUN AGGREGATION"
+            # // Quan trong: dung lambda x=idx de capture gia tri idx tai thoi diem loop
+            btn = ttk.Button(frame, text=btn_text, command=lambda i=idx: self.run_specific_stage_thread(host, i))
+            btn.pack(fill=tk.X, pady=5)
+
+    # --- ACTION HANDLERS ---
+
+    def run_specific_stage_thread(self, host, stage_idx):
+        """Wrapper de chay thread, khong treo UI."""
+        threading.Thread(target=lambda: self._run_specific_stage_logic(host, stage_idx)).start()
+
+    def _run_specific_stage_logic(self, host, stage_idx):
+        logging.info(f"--- MANUAL RUN: {host} | STAGE {stage_idx} ---")
+        
+        # Reload config de dam bao moi nhat
         self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
-
-        total = len(hosts)
-        passed = 0
-        failed = 0
-
-        logging.info(f"=== STARTING SUITE: {total} HOSTS ===")
-
-        for host in hosts:
-            logging.info(f"--- TESTING HOST: {host} ---")
-            
-            # 0. Check Enabled
-            if not self.config.getboolean(host, 'enabled', fallback=True):
-                logging.info(f"Skipping disabled host: {host}")
-                continue
-
-            pipeline_json = self.config.get(host, 'pipeline_config', fallback='[]')
-            try:
-                pipeline = json.loads(pipeline_json)
-            except:
-                logging.error(f"Invalid pipeline config for {host}")
-                failed += 1
-                continue
-
-            if not pipeline:
-                logging.warning(f"Empty pipeline for {host}")
-                continue
-
-            raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
-            # // Resolve key de xu ly truong hop profile:XXX
-            api_key = resolve_api_key(raw_api_key, self.sys_config)
-
-            host_failed = False
-
-            # 1. RUN STAGE 0
-            stage0_conf = pipeline[0]
-            try:
-                logging.info(f"Running Stage 0 ({stage0_conf.get('name')})...")
-                s0_success = run_pipeline_stage_0(
-                    self.config, host, stage0_conf, api_key, self.sys_config, test_mode=True
+        pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))
+        
+        stage_conf = pipeline[stage_idx]
+        
+        # Resolve API Key
+        raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+        api_key = resolve_api_key(raw_api_key, self.sys_config)
+        
+        try:
+            if stage_idx == 0:
+                success = run_pipeline_stage_0(
+                    self.config, host, stage_conf, api_key, self.sys_config, test_mode=True
                 )
-                if not s0_success:
-                    logging.error("Stage 0 FAILED. Aborting host.")
-                    host_failed = True
+                if success:
+                    logging.info(">>> Stage 0 SUCCESS.")
                 else:
-                    logging.info("Stage 0 PASSED.")
-            except Exception as e:
-                logging.error(f"Exception Stage 0: {e}")
-                host_failed = True
-
-            # 2. RUN DOWNSTREAM STAGES (With Mock Trigger)
-            if not host_failed:
-                for i in range(1, len(pipeline)):
-                    current = pipeline[i]
-                    prev = pipeline[i-1]
-                    stage_name = current.get('name', f'Stage {i}')
-                    threshold = int(current.get('trigger_threshold', 1))
-
-                    logging.info(f"Preparing {stage_name} (Mock Trigger)...")
+                    logging.error(">>> Stage 0 FAILED.")
+            else:
+                prev_stage = pipeline[stage_idx - 1]
+                
+                if self.force_trigger_var.get():
+                    threshold = int(stage_conf.get('trigger_threshold', 1))
+                    logging.info(f"Force Trigger: Hacking buffer count to {threshold + 1}")
+                    state_manager.save_stage_buffer_count(host, stage_idx, threshold + 1, test_mode=True)
+                
+                success = run_pipeline_stage_n(
+                    self.config, host, stage_idx, stage_conf, prev_stage, 
+                    api_key, self.sys_config, test_mode=True
+                )
+                
+                if success:
+                    logging.info(f">>> Stage {stage_idx} SUCCESS.")
+                    state_manager.save_stage_buffer_count(host, stage_idx, 0, test_mode=True)
+                else:
+                    logging.error(f">>> Stage {stage_idx} FAILED (Check logs/buffer).")
                     
-                    # HACK: Force Buffer Update
-                    state_manager.save_stage_buffer_count(host, i, threshold + 1, test_mode=True)
-                    
-                    try:
-                        sn_success = run_pipeline_stage_n(
-                            self.config, host, i, current, prev, api_key, self.sys_config, test_mode=True
-                        )
-                        if sn_success:
-                            logging.info(f"{stage_name} PASSED.")
-                            # Reset buffer like main loop
-                            state_manager.save_stage_buffer_count(host, i, 0, test_mode=True)
-                        else:
-                            logging.error(f"{stage_name} FAILED.")
-                            host_failed = True
-                            break
-                    except Exception as e:
-                        logging.error(f"Exception {stage_name}: {e}")
-                        host_failed = True
-                        break
-            
-            if host_failed: failed += 1
-            else: passed += 1
-            logging.info("-" * 30)
+        except Exception as e:
+            logging.error(f"EXCEPTION during manual run: {e}", exc_info=True)
 
-        logging.info(f"=== SUITE FINISHED ===")
-        logging.info(f"PASSED: {passed} | FAILED: {failed}")
-        messagebox.showinfo("Suite Finished", f"Run complete.\nPassed: {passed}\nFailed: {failed}")
-
-
-    # --- MANUAL SIMULATION LOGIC ---
     def generate_fake_logs(self):
         host = self.selected_host.get()
         if not host: return
@@ -338,7 +329,7 @@ class LogAnalyzerTesterApp:
             try:
                 with open(log_file, 'a', encoding='utf-8') as f:
                     for i in range(count):
-                        f.write(f"{now} pfsense filterlog: [TEST-GEN] Log line {i+1}\n")
+                        f.write(f"{now} pfsense filterlog: [TEST-GEN] Log line {i+1} src=192.168.1.{i%255} dst=8.8.8.8\n")
                 logging.info("Injection Done.")
             except Exception as e: logging.error(f"Gen failed: {e}")
         threading.Thread(target=_gen).start()
@@ -348,59 +339,106 @@ class LogAnalyzerTesterApp:
         if host: 
             state_manager.reset_all_states(host, test_mode=True)
             logging.info(f"Reset states for {host}")
+        else:
+            if os.path.exists(TEST_STATE_DIR):
+                shutil.rmtree(TEST_STATE_DIR)
+                os.makedirs(TEST_STATE_DIR)
+                logging.info("Cleared ALL test states.")
 
-    def run_manual_stage(self, idx):
-        host = self.selected_host.get()
-        if not host: return
+    def clean_environment(self):
+        logging.warning(">>> Cleaning up test environment (Reports & States)...")
+        if os.path.exists(TEST_REPORTS_DIR):
+            try: shutil.rmtree(TEST_REPORTS_DIR)
+            except: pass
+        if os.path.exists(TEST_STATE_DIR):
+            try: shutil.rmtree(TEST_STATE_DIR)
+            except: pass
+        os.makedirs(TEST_REPORTS_DIR, exist_ok=True)
+        os.makedirs(TEST_STATE_DIR, exist_ok=True)
 
-        # RELOAD CONFIG HERE to catch GUI changes
+    def run_suite(self, target="all"):
+        hosts_to_run = []
+        if target == "selected":
+            sel = self.suite_host_list.curselection()
+            if not sel: return messagebox.showwarning("Warning", "Select a host first!")
+            hosts_to_run.append(self.suite_host_list.get(sel[0]))
+        else:
+            hosts_to_run = [s for s in self.config.sections() if s.startswith(('Host_', 'Firewall_'))]
+
+        if not hosts_to_run: return messagebox.showerror("Error", "No hosts found.")
+
+        threading.Thread(target=self._suite_worker, args=(hosts_to_run,)).start()
+
+    def _suite_worker(self, hosts):
+        if self.clean_env_var.get():
+            self.clean_environment()
+            
         self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
-        
-        pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))
-        if idx >= len(pipeline): return
-        
-        raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
-        api_key = resolve_api_key(raw_api_key, self.sys_config)
-        
-        def _run():
+        total = len(hosts)
+        passed = 0
+        failed = 0
+
+        logging.info(f"=== STARTING SUITE: {total} HOSTS ===")
+
+        for host in hosts:
+            logging.info(f"--- TESTING HOST: {host} ---")
+            
+            if not self.config.getboolean(host, 'enabled', fallback=True):
+                logging.info(f"Skipping disabled host: {host}")
+                continue
+
+            pipeline_json = self.config.get(host, 'pipeline_config', fallback='[]')
+            try: pipeline = json.loads(pipeline_json)
+            except: 
+                logging.error(f"Invalid pipeline config for {host}")
+                failed += 1; continue
+
+            raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
+            api_key = resolve_api_key(raw_api_key, self.sys_config)
+
+            host_failed = False
+
+            if not pipeline: continue
+            
             try:
-                run_pipeline_stage_0(self.config, host, pipeline[idx], 
-                                   api_key, self.sys_config, test_mode=True)
-                logging.info("Manual Stage 0 Done.")
-            except Exception as e: logging.error(f"Error: {e}")
-        threading.Thread(target=_run).start()
+                logging.info(f"Running Stage 0...")
+                s0_success = run_pipeline_stage_0(
+                    self.config, host, pipeline[0], api_key, self.sys_config, test_mode=True
+                )
+                if not s0_success:
+                    logging.error("Stage 0 FAILED. Aborting host.")
+                    host_failed = True
+            except Exception as e:
+                logging.error(f"Exception Stage 0: {e}")
+                host_failed = True
 
-    def run_manual_stage_n(self):
-        host = self.selected_host.get()
-        if not host: return
-        try: idx = int(self.stage_n_var.get())
-        except: return
-        
-        # RELOAD CONFIG HERE
-        self.config.read(TEST_CONFIG_FILE, encoding='utf-8')
 
-        pipeline = json.loads(self.config.get(host, 'pipeline_config', fallback='[]'))
-        if idx >= len(pipeline) or idx < 1: return
-        
-        raw_api_key = self.config.get(host, 'GeminiAPIKey', fallback='')
-        api_key = resolve_api_key(raw_api_key, self.sys_config)
-        
-        if self.force_trigger_var.get():
-            threshold = int(pipeline[idx].get('trigger_threshold', 1))
-            state_manager.save_stage_buffer_count(host, idx, threshold+1, test_mode=True)
-            logging.info(f"Force trigger set for Stage {idx}")
+            if not host_failed:
+                for i in range(1, len(pipeline)):
+                    current = pipeline[i]
+                    prev = pipeline[i-1]
+                    threshold = int(current.get('trigger_threshold', 1))
 
-        def _run():
-            run_pipeline_stage_n(self.config, host, idx, pipeline[idx], pipeline[idx-1],
-                               api_key, self.sys_config, test_mode=True)
-            logging.info(f"Manual Stage {idx} Done.")
-        threading.Thread(target=_run).start()
+                    logging.info(f"Mocking Buffer for Stage {i}...")
+                    state_manager.save_stage_buffer_count(host, i, threshold + 1, test_mode=True)
+                    
+                    try:
+                        sn_success = run_pipeline_stage_n(
+                            self.config, host, i, current, prev, api_key, self.sys_config, test_mode=True
+                        )
+                        if not sn_success:
+                            logging.error(f"Stage {i} FAILED.")
+                            host_failed = True; break
+                    except Exception as e:
+                        logging.error(f"Exception Stage {i}: {e}")
+                        host_failed = True; break
+            
+            if host_failed: failed += 1
+            else: passed += 1
+            logging.info("-" * 30)
 
-    def run_pytest(self):
-        sel = self.test_listbox.curselection()
-        if not sel: return
-        files = [os.path.join(CURRENT_DIR, self.test_listbox.get(i)) for i in sel]
-        threading.Thread(target=lambda: pytest.main(["-v", "-s"] + files)).start()
+        logging.info(f"=== SUITE FINISHED: PASSED {passed} | FAILED {failed} ===")
+        messagebox.showinfo("Suite Finished", f"Passed: {passed}\nFailed: {failed}")
 
 if __name__ == "__main__":
     root = tk.Tk()
