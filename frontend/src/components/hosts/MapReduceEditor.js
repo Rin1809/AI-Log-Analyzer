@@ -235,4 +235,4 @@ const MapReduceEditor = ({
     );
 };
 
-export default MapReduceEditor;
+export default React.memo(MapReduceEditor);

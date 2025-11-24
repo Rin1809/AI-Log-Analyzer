@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { useOutletContext, useBeforeUnload, useNavigate, useBlocker } from 'react-router-dom';
+import { useOutletContext, useBeforeUnload, useBlocker } from 'react-router-dom';
 import {
   Box,
   Heading,
@@ -71,7 +71,6 @@ const isObjectEqual = (obj1, obj2) => {
 const SettingsPage = () => {
   const { isTestMode, setIsTestMode } = useOutletContext();
   const { t } = useLanguage();
-  const navigate = useNavigate();
 
   const [initialSettings, setInitialSettings] = useState(null);
   const [settings, setSettings] = useState({
@@ -155,16 +154,8 @@ const SettingsPage = () => {
     ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
   );
   
-  const { isOpen: isConfirmLeaveOpen, onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
-
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
-        onConfirmLeaveOpen();
-    } else {
-        onConfirmLeaveClose();
-    }
-  }, [blocker.state, onConfirmLeaveOpen, onConfirmLeaveClose]);
-
+  // Cleaned up unused useDisclosure and useEffect for blocker here. 
+  // We use blocker.state directly in the render.
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;

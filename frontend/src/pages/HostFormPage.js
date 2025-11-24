@@ -50,6 +50,156 @@ const StatusBadge = ({ isEnabled }) => {
     );
 };
 
+// --- SUB-COMPONENT: PipelineStageCard (Memoized for Performance) ---
+// This ensures that when typing in Stage 0, Stage 1 doesn't re-render
+const PipelineStageCard = React.memo(({ 
+    stage, idx, totalStages, 
+    geminiModels, isTestMode, chunkSize, setBasicInfo,
+    onUpdateStage, onMoveStage, onRemoveStage, onOpenEmailModal,
+    onAddSubstage, onRemoveSubstage, onUpdateSubstage, onUpdateSummaryConf
+}) => {
+    const stageTrashBg = useColorModeValue('gray.100', 'gray.700');
+    const { t } = useLanguage();
+
+    return (
+        <Box borderWidth="1px" borderRadius="md" p={3} position="relative" _hover={{ borderColor: "blue.300", boxShadow: "sm" }}>
+            <Flex justify="space-between" mb={2} align="center" wrap="wrap" gap={2}>
+                <HStack flex="1" minW="0">
+                    <Badge 
+                        colorScheme={idx === 0 ? "blue" : "purple"} 
+                        variant="subtle" 
+                        fontSize="0.8em"
+                        fontWeight="normal"
+                        px={2} 
+                        py={1}
+                        borderRadius="full"
+                        flexShrink={0}
+                    >
+                        {idx === 0 ? `#0 ${t('sourceStage')}` : `#${idx} ${t('aggregationStage')}`}
+                    </Badge>
+                    
+                    <Input 
+                        size="sm" 
+                        value={stage.name} 
+                        onChange={e => onUpdateStage(idx, 'name', e.target.value)} 
+                        w="auto"
+                        flex="1"
+                        minW="100px"
+                        fontWeight="normal" 
+                        variant="unstyled" 
+                    />
+                </HStack>
+                <HStack spacing={1} flexShrink={0}>
+                    <IconButton size="xs" icon={<ArrowUpIcon />} isDisabled={idx === 0} onClick={() => onMoveStage(idx, -1)} variant="ghost"/>
+                    <IconButton size="xs" icon={<ArrowDownIcon />} isDisabled={idx === totalStages - 1} onClick={() => onMoveStage(idx, 1)} variant="ghost"/>
+                    
+                    <IconButton 
+                        size="xs" icon={<MinusIcon />} 
+                        variant="ghost" color="gray.500" bg={stageTrashBg}
+                        _hover={{ bg: 'red.100', color: 'red.500' }}
+                        onClick={() => onRemoveStage(idx)} 
+                    />
+                </HStack>
+            </Flex>
+            
+            <Divider mb={3} />
+            
+            <SimpleGrid columns={2} spacing={3}>
+                <FormControl>
+                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('model')}</FormLabel>
+                    <Select size="xs" value={stage.model} onChange={e => onUpdateStage(idx, 'model', e.target.value)}>
+                        {Object.entries(geminiModels).map(([k,v]) => <option key={v} value={v}>{k}</option>)}
+                    </Select>
+                </FormControl>
+                
+                <FormControl>
+                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('promptFile')}</FormLabel>
+                    <PromptManager 
+                        value={stage.prompt_file} 
+                        onChange={(newVal) => onUpdateStage(idx, 'prompt_file', newVal)}
+                        isTestMode={isTestMode}
+                    />
+                </FormControl>
+
+                <FormControl>
+                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
+                    <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => onOpenEmailModal(idx)} variant="outline">
+                        {t('manageEmails')} ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
+                    </Button>
+                </FormControl>
+
+                {idx === 0 ? (
+                    <FormControl>
+                        <FormLabel fontSize="xs" mb={0} color="gray.500">{t('chunkSize')}</FormLabel>
+                        <NumberInput size="xs" min={100} max={50000} value={chunkSize} onChange={(valStr) => setBasicInfo(prev => ({...prev, chunk_size: valStr}))}>
+                            <NumberInputField />
+                            <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
+                        </NumberInput>
+                    </FormControl>
+                ) : (
+                    <FormControl>
+                        <FormLabel fontSize="xs" mb={0} color="gray.500">{t('triggerThreshold')}</FormLabel>
+                        <NumberInput size="xs" min={1} value={stage.trigger_threshold} onChange={(_, v) => onUpdateStage(idx, 'trigger_threshold', v)}>
+                            <NumberInputField />
+                        </NumberInput>
+                    </FormControl>
+                )}
+                
+                <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
+                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
+                    <ApiKeySelector 
+                        value={stage.gemini_api_key || ''} 
+                        onChange={(val) => onUpdateStage(idx, 'gemini_api_key', val)}
+                        isTestMode={isTestMode}
+                    />
+                </FormControl>
+            </SimpleGrid>
+            
+
+            {idx === 0 && (
+                <Box mt={4} borderTopWidth="1px" borderColor="gray.100" pt={2}>
+                    <Text fontSize="xs" fontWeight="normal" color="gray" mb={2}>
+                        {t('mapReduceArch')}
+                    </Text>
+                    <MapReduceEditor 
+                        substages={stage.substages}
+                        summaryConf={stage.summary_conf}
+                        onAdd={() => onAddSubstage(idx)}
+                        onRemove={(subIdx) => onRemoveSubstage(idx, subIdx)}
+                        onUpdate={(subIdx, f, v) => onUpdateSubstage(idx, subIdx, f, v)}
+                        onUpdateSummary={(f, v) => onUpdateSummaryConf(idx, f, v)}
+                        geminiModels={geminiModels}
+                        isTestMode={isTestMode}
+                    />
+                </Box>
+            )}
+            
+            {idx !== 0 && (
+                <Flex justify="flex-end" mt={3}>
+                    <HStack>
+                        <Text fontSize="xs" color="gray.500">{t('isEnabled')}</Text>
+                        <Switch size="sm" isChecked={stage.enabled} onChange={e => onUpdateStage(idx, 'enabled', e.target.checked)} />
+                    </HStack>
+                </Flex>
+            )}
+        </Box>
+    );
+}, (prev, next) => {
+    // Custom compare function for React.memo
+    // Returns true if props are equal (do not re-render)
+    // We only care if 'stage' data, 'chunkSize' (for idx 0), or 'geminiModels' changed.
+    // We ignore function references since they change every render but do the same thing.
+    return (
+        prev.stage === next.stage &&
+        prev.idx === next.idx &&
+        prev.totalStages === next.totalStages &&
+        prev.chunkSize === next.chunkSize &&
+        prev.geminiModels === next.geminiModels &&
+        prev.isTestMode === next.isTestMode
+    );
+});
+
+
 const HostFormPage = () => {
     const { isTestMode } = useOutletContext();
     const { hostId } = useParams();
@@ -97,17 +247,22 @@ const HostFormPage = () => {
     const saveButtonHoverBg = useColorModeValue('black', 'gray.200');
 
     const trashIconBg = useColorModeValue('gray.200', 'gray.600');
-    const stageTrashBg = useColorModeValue('gray.100', 'gray.700');
 
-    // --- DIRTY CHECK & BLOCKER ---
+    // --- DIRTY CHECK & BLOCKER (DEBOUNCED) ---
     useEffect(() => {
         if (!initialBasicInfo || !initialPipeline) return;
-        const infoChanged = !isObjectEqual(basicInfo, initialBasicInfo);
-        const pipelineChanged = !isObjectEqual(pipeline, initialPipeline);
-        setIsDirty(infoChanged || pipelineChanged);
+
+        const handler = setTimeout(() => {
+            const infoChanged = !isObjectEqual(basicInfo, initialBasicInfo);
+            const pipelineChanged = !isObjectEqual(pipeline, initialPipeline);
+            setIsDirty(infoChanged || pipelineChanged);
+        }, 300); // Debounce to prevent lag
+
+        return () => {
+            clearTimeout(handler);
+        };
     }, [basicInfo, pipeline, initialBasicInfo, initialPipeline]);
 
-    // 1. Browser Level Blocker (Refresh/Close Tab)
     useBeforeUnload(
         useCallback((e) => {
             if (isDirty) {
@@ -117,15 +272,12 @@ const HostFormPage = () => {
         }, [isDirty])
     );
 
-    // 2. Router Level Blocker (Sidebar/Back Button navigation)
-    // useBlocker sẽ chặn mọi navigation nếu function trả về true
     const blocker = useBlocker(
         ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
     );
 
     const { isOpen: isConfirmLeaveOpen, onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
 
-    // Khi blocker chuyển sang trạng thái 'blocked', hiện Modal
     useEffect(() => {
         if (blocker.state === 'blocked') {
             onConfirmLeaveOpen();
@@ -136,8 +288,6 @@ const HostFormPage = () => {
 
 
     const handleBack = () => {
-        // Nút back thủ công này cũng sẽ bị blocker chặn nếu dùng navigate(), 
-        // nhưng cứ để logic chặn native của blocker xử lý cho đồng bộ.
         navigate('/status');
     };
 
@@ -235,7 +385,6 @@ const HostFormPage = () => {
                     setBasicInfo(safeInfo);
                     setPipeline(safePipeline);
                     
-                    // Init State tracking
                     setInitialBasicInfo(safeInfo);
                     setInitialPipeline(safePipeline);
 
@@ -381,12 +530,10 @@ const HostFormPage = () => {
             
             toast({ title: t('saveSuccess'), status: "success" });
             
-            // Update initial state to match saved state
             setInitialBasicInfo(basicInfo);
             setInitialPipeline(pipeline);
             setIsDirty(false); 
 
-            // Sau khi lưu xong, navigate về status (blocker sẽ không kích hoạt vì isDirty = false)
             navigate('/status');
         } catch (e) {
             toast({ title: t('saveError'), description: e.response?.data?.detail || e.message, status: "error" });
@@ -586,127 +733,24 @@ const HostFormPage = () => {
                         <CardBody>
                             <VStack spacing={4} align="stretch">
                                 {pipeline.map((stage, idx) => (
-                                    <Box key={idx} borderWidth="1px" borderRadius="md" p={3} position="relative" _hover={{ borderColor: "blue.300", boxShadow: "sm" }}>
-                                        <Flex justify="space-between" mb={2} align="center" wrap="wrap" gap={2}>
-                                            <HStack flex="1" minW="0">
-                                                <Badge 
-                                                    colorScheme={idx === 0 ? "blue" : "purple"} 
-                                                    variant="subtle" 
-                                                    fontSize="0.8em"
-                                                    fontWeight="normal"
-                                                    px={2} 
-                                                    py={1}
-                                                    borderRadius="full"
-                                                    flexShrink={0}
-                                                >
-                                                    {idx === 0 ? `#0 ${t('sourceStage')}` : `#${idx} ${t('aggregationStage')}`}
-                                                </Badge>
-                                                
-                                                <Input 
-                                                    size="sm" 
-                                                    value={stage.name} 
-                                                    onChange={e=>updateStage(idx, 'name', e.target.value)} 
-                                                    w="auto"
-                                                    flex="1"
-                                                    minW="100px"
-                                                    fontWeight="normal" 
-                                                    variant="unstyled" 
-                                                />
-                                            </HStack>
-                                            <HStack spacing={1} flexShrink={0}>
-                                                <IconButton size="xs" icon={<ArrowUpIcon />} isDisabled={idx===0} onClick={()=>moveStage(idx, -1)} variant="ghost"/>
-                                                <IconButton size="xs" icon={<ArrowDownIcon />} isDisabled={idx===pipeline.length-1} onClick={()=>moveStage(idx, 1)} variant="ghost"/>
-                                                
-                                                <IconButton 
-                                                    size="xs" icon={<MinusIcon />} 
-                                                    variant="ghost" color="gray.500" bg={stageTrashBg}
-                                                    _hover={{ bg: 'red.100', color: 'red.500' }}
-                                                    onClick={()=>removeStage(idx)} 
-                                                />
-                                            </HStack>
-                                        </Flex>
-                                        
-                                        <Divider mb={3} />
-                                        
-                                        <SimpleGrid columns={2} spacing={3}>
-                                            <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('model')}</FormLabel>
-                                                <Select size="xs" value={stage.model} onChange={e=>updateStage(idx, 'model', e.target.value)}>
-                                                    {Object.entries(geminiModels).map(([k,v])=> <option key={v} value={v}>{k}</option>)}
-                                                </Select>
-                                            </FormControl>
-                                            
-                                            <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('promptFile')}</FormLabel>
-                                                <PromptManager 
-                                                    value={stage.prompt_file} 
-                                                    onChange={(newVal) => updateStage(idx, 'prompt_file', newVal)}
-                                                    isTestMode={isTestMode}
-                                                />
-                                            </FormControl>
-
-                                            <FormControl>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
-                                                <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
-                                                    {t('manageEmails')} ({stage.recipient_emails ? stage.recipient_emails.split(',').filter(Boolean).length : 0})
-                                                </Button>
-                                            </FormControl>
-
-                                            {idx === 0 ? (
-                                                <FormControl>
-                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('chunkSize')}</FormLabel>
-                                                    <NumberInput size="xs" min={100} max={50000} value={basicInfo.chunk_size} onChange={(valStr) => setBasicInfo({...basicInfo, chunk_size: valStr})}>
-                                                        <NumberInputField />
-                                                        <NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
-                                                    </NumberInput>
-                                                </FormControl>
-                                            ) : (
-                                                <FormControl>
-                                                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('triggerThreshold')}</FormLabel>
-                                                    <NumberInput size="xs" min={1} value={stage.trigger_threshold} onChange={(_,v)=>updateStage(idx, 'trigger_threshold', v)}>
-                                                        <NumberInputField />
-                                                    </NumberInput>
-                                                </FormControl>
-                                            )}
-                                            
-                                            <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
-                                                <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
-                                                <ApiKeySelector 
-                                                    value={stage.gemini_api_key || ''} 
-                                                    onChange={(val) => updateStage(idx, 'gemini_api_key', val)}
-                                                    isTestMode={isTestMode}
-                                                />
-                                            </FormControl>
-                                        </SimpleGrid>
-                                        
-
-                                        {idx === 0 && (
-                                            <Box mt={4} borderTopWidth="1px" borderColor="gray.100" pt={2}>
-                                                <Text fontSize="xs" fontWeight="normal" color="gray" mb={2}>
-                                                    {t('mapReduceArch')}
-                                                </Text>
-                                                <MapReduceEditor 
-                                                    substages={stage.substages}
-                                                    summaryConf={stage.summary_conf}
-                                                    onAdd={() => handleAddSubstage(idx)}
-                                                    onRemove={(subIdx) => handleRemoveSubstage(idx, subIdx)}
-                                                    onUpdate={(subIdx, f, v) => handleUpdateSubstage(idx, subIdx, f, v)}
-                                                    onUpdateSummary={(f, v) => handleUpdateSummaryConf(idx, f, v)}
-                                                    geminiModels={geminiModels}
-                                                    isTestMode={isTestMode}
-                                                />
-                                            </Box>
-                                        )}
-                                        
-                                        {idx !== 0 && (
-                                            <Flex justify="flex-end" mt={3}>
-                                                <HStack>
-                                                    <Text fontSize="xs" color="gray.500">{t('isEnabled')}</Text>
-                                                    <Switch size="sm" isChecked={stage.enabled} onChange={e=>updateStage(idx, 'enabled', e.target.checked)} />
-                                                </HStack>
-                                            </Flex>
-                                        )}
-                                    </Box>
+                                    <PipelineStageCard 
+                                        key={idx}
+                                        stage={stage}
+                                        idx={idx}
+                                        totalStages={pipeline.length}
+                                        geminiModels={geminiModels}
+                                        isTestMode={isTestMode}
+                                        chunkSize={basicInfo.chunk_size}
+                                        setBasicInfo={setBasicInfo}
+                                        onUpdateStage={updateStage}
+                                        onMoveStage={moveStage}
+                                        onRemoveStage={removeStage}
+                                        onOpenEmailModal={openEmailModal}
+                                        onAddSubstage={handleAddSubstage}
+                                        onRemoveSubstage={handleRemoveSubstage}
+                                        onUpdateSubstage={handleUpdateSubstage}
+                                        onUpdateSummaryConf={handleUpdateSummaryConf}
+                                    />
                                 ))}
                             </VStack>
                         </CardBody>

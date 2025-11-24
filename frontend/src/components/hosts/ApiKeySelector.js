@@ -37,6 +37,7 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
     const bg = useColorModeValue('white', 'gray.700');
     const iconColor = useColorModeValue('gray.400', 'gray.500');
     
+    // Fetch settings only once on mount
     const fetchSettings = useCallback(async () => {
         setLoading(true);
         try {
@@ -175,4 +176,4 @@ const ApiKeySelector = ({ value, onChange, isTestMode }) => {
     );
 };
 
-export default ApiKeySelector;
+export default React.memo(ApiKeySelector);
