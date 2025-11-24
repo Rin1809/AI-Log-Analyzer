@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { useNavigate, useParams, useOutletContext } from 'react-router-dom';
+import { useNavigate, useParams, useOutletContext, useBeforeUnload, useBlocker } from 'react-router-dom';
 import {
   Box, Button, FormControl, FormLabel, Input, VStack, Heading, useToast,
   HStack, IconButton, Select, Card, CardBody, CardHeader, Text, Divider,
@@ -8,7 +8,7 @@ import {
   useColorModeValue, Flex, Checkbox, Tooltip, SimpleGrid,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
   Wrap, WrapItem, Tag, TagLabel, TagCloseButton, Alert, AlertIcon, InputGroup, InputLeftElement,
-  Spinner, Center, Badge
+  Spinner, Center, Badge, FormHelperText, useDisclosure
 } from '@chakra-ui/react';
 import { 
     ArrowBackIcon, AddIcon, ArrowUpIcon, ArrowDownIcon, 
@@ -19,6 +19,11 @@ import PromptManager from '../components/hosts/PromptManager';
 import ApiKeySelector from '../components/hosts/ApiKeySelector'; 
 import MapReduceEditor from '../components/hosts/MapReduceEditor'; 
 import { useLanguage } from '../context/LanguageContext';
+
+// --- HELPER: Deep Compare for Dirty Check ---
+const isObjectEqual = (obj1, obj2) => {
+    return JSON.stringify(obj1) === JSON.stringify(obj2);
+};
 
 const StatusBadge = ({ isEnabled }) => {
     const onlineColor = useColorModeValue('green.500', 'green.400');
@@ -55,6 +60,11 @@ const HostFormPage = () => {
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     
+    // Dirty State Tracking
+    const [initialBasicInfo, setInitialBasicInfo] = useState(null);
+    const [initialPipeline, setInitialPipeline] = useState(null);
+    const [isDirty, setIsDirty] = useState(false);
+
     const contextInputRef = useRef(null);
     const diagramInputRef = useRef(null);
 
@@ -88,6 +98,48 @@ const HostFormPage = () => {
 
     const trashIconBg = useColorModeValue('gray.200', 'gray.600');
     const stageTrashBg = useColorModeValue('gray.100', 'gray.700');
+
+    // --- DIRTY CHECK & BLOCKER ---
+    useEffect(() => {
+        if (!initialBasicInfo || !initialPipeline) return;
+        const infoChanged = !isObjectEqual(basicInfo, initialBasicInfo);
+        const pipelineChanged = !isObjectEqual(pipeline, initialPipeline);
+        setIsDirty(infoChanged || pipelineChanged);
+    }, [basicInfo, pipeline, initialBasicInfo, initialPipeline]);
+
+    // 1. Browser Level Blocker (Refresh/Close Tab)
+    useBeforeUnload(
+        useCallback((e) => {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        }, [isDirty])
+    );
+
+    // 2. Router Level Blocker (Sidebar/Back Button navigation)
+    // useBlocker sẽ chặn mọi navigation nếu function trả về true
+    const blocker = useBlocker(
+        ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
+    );
+
+    const { isOpen: isConfirmLeaveOpen, onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
+
+    // Khi blocker chuyển sang trạng thái 'blocked', hiện Modal
+    useEffect(() => {
+        if (blocker.state === 'blocked') {
+            onConfirmLeaveOpen();
+        } else {
+            onConfirmLeaveClose();
+        }
+    }, [blocker.state, onConfirmLeaveOpen, onConfirmLeaveClose]);
+
+
+    const handleBack = () => {
+        // Nút back thủ công này cũng sẽ bị blocker chặn nếu dùng navigate(), 
+        // nhưng cứ để logic chặn native của blocker xử lý cho đồng bộ.
+        navigate('/status');
+    };
 
     const addStage = () => {
         const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
@@ -176,10 +228,22 @@ const HostFormPage = () => {
                 if (hostId) {
                     const res = await axios.get(`/api/hosts/${hostId}`, { params: { test_mode: isTestMode }});
                     const { pipeline: pl, ...rest } = res.data;
-                    setBasicInfo(prev => ({ ...prev, ...rest }));
-                    setPipeline(pl && pl.length > 0 ? pl : createDefaultPipeline(models.data));
+                    
+                    const safeInfo = { ...rest };
+                    const safePipeline = pl && pl.length > 0 ? pl : createDefaultPipeline(models.data);
+
+                    setBasicInfo(safeInfo);
+                    setPipeline(safePipeline);
+                    
+                    // Init State tracking
+                    setInitialBasicInfo(safeInfo);
+                    setInitialPipeline(safePipeline);
+
                 } else {
-                    setPipeline(createDefaultPipeline(models.data));
+                    const defPl = createDefaultPipeline(models.data);
+                    setPipeline(defPl);
+                    setInitialBasicInfo(basicInfo);
+                    setInitialPipeline(defPl);
                 }
             } catch (e) {
                 console.error(e);
@@ -284,7 +348,26 @@ const HostFormPage = () => {
         updateStage(currentStageIndex, 'recipient_emails', newEmails);
     };
 
+    // --- VALIDATION & SAVE ---
+    const validateForm = () => {
+        if (!basicInfo.syshostname || !basicInfo.syshostname.trim()) {
+            toast({ title: t('missingInfo'), description: "Hostname is required.", status: "error" });
+            return false;
+        }
+        if (!basicInfo.logfile || !basicInfo.logfile.trim()) {
+            toast({ title: t('missingInfo'), description: "Log File Path is required.", status: "error" });
+            return false;
+        }
+        if (!basicInfo.geminiapikey || !basicInfo.geminiapikey.trim()) {
+             toast({ title: t('missingInfo'), description: "Gemini API Key (Default) is required.", status: "error" });
+             return false;
+        }
+        return true;
+    };
+
     const handleSave = async () => {
+        if (!validateForm()) return;
+
         setIsSaving(true);
         try {
             const payload = { 
@@ -297,6 +380,13 @@ const HostFormPage = () => {
             else await axios.post('/api/hosts', payload, { params: { test_mode: isTestMode }});
             
             toast({ title: t('saveSuccess'), status: "success" });
+            
+            // Update initial state to match saved state
+            setInitialBasicInfo(basicInfo);
+            setInitialPipeline(pipeline);
+            setIsDirty(false); 
+
+            // Sau khi lưu xong, navigate về status (blocker sẽ không kích hoạt vì isDirty = false)
             navigate('/status');
         } catch (e) {
             toast({ title: t('saveError'), description: e.response?.data?.detail || e.message, status: "error" });
@@ -314,11 +404,17 @@ const HostFormPage = () => {
         <VStack spacing={6} align="stretch" pb={20}>
             <Flex align="center" justify="space-between">
                 <HStack>
-                    <IconButton icon={<ArrowBackIcon />} onClick={() => navigate('/status')} variant="ghost" aria-label="Back" />
+                    <IconButton icon={<ArrowBackIcon />} onClick={handleBack} variant="ghost" aria-label="Back" />
                     <Heading size="lg" fontWeight="normal">{hostId ? t('editHost') : t('newHost')}</Heading>
                     
                     {hostId && (
                         <StatusBadge isEnabled={String(basicInfo.enabled) === 'True'} />
+                    )}
+                    
+                    {isDirty && (
+                        <Tag colorScheme="orange" variant="solid" borderRadius="full">
+                            <TagLabel fontSize="xs">Unsaved Changes</TagLabel>
+                        </Tag>
                     )}
                 </HStack>
                 <Button 
@@ -335,17 +431,44 @@ const HostFormPage = () => {
                 </Button>
             </Flex>
 
+            {/* BLOCKER MODAL */}
+            {blocker.state === 'blocked' && (
+                <Modal isOpen={true} onClose={() => blocker.reset()} isCentered>
+                    <ModalOverlay backdropFilter="blur(2px)"/>
+                    <ModalContent>
+                        <ModalHeader>Cảnh báo</ModalHeader>
+                        <ModalBody>
+                            <Alert status="warning" borderRadius="md">
+                                <AlertIcon />
+                                Bạn có thay đổi chưa lưu. Nếu rời đi, dữ liệu sẽ bị mất.
+                            </Alert>
+                        </ModalBody>
+                        <ModalFooter>
+                            <Button variant="ghost" fontWeight="normal" mr={3} onClick={() => blocker.reset()}>
+                                Hủy
+                            </Button>
+                            <Button colorScheme="red" fontWeight="normal" onClick={() => blocker.proceed()}>
+                                Rời đi
+                            </Button>
+                        </ModalFooter>
+                    </ModalContent>
+                </Modal>
+            )}
+
+
             <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
                 <VStack spacing={6} align="stretch">
                     <Card bg={bg}>
                         <CardHeader><Heading size="md" fontWeight="normal">{t('basicInfo')}</Heading></CardHeader>
                         <CardBody>
                             <VStack spacing={4}>
-                                <FormControl isRequired><FormLabel>{t('hostname')}</FormLabel>
-                                    <Input value={basicInfo.syshostname} onChange={e=>setBasicInfo({...basicInfo, syshostname: e.target.value})} />
+                                <FormControl isRequired>
+                                    <FormLabel>{t('hostname')}</FormLabel>
+                                    <Input value={basicInfo.syshostname} onChange={e=>setBasicInfo({...basicInfo, syshostname: e.target.value})} placeholder="e.g. pfSense-Main" />
                                 </FormControl>
-                                <FormControl><FormLabel>{t('logFilePath')}</FormLabel>
-                                    <Input value={basicInfo.logfile} onChange={e=>setBasicInfo({...basicInfo, logfile: e.target.value})}/>
+                                <FormControl isRequired>
+                                    <FormLabel>{t('logFilePath')}</FormLabel>
+                                    <Input value={basicInfo.logfile} onChange={e=>setBasicInfo({...basicInfo, logfile: e.target.value})} placeholder="/var/log/system.log" />
                                 </FormControl>
                                 
                             
@@ -354,7 +477,6 @@ const HostFormPage = () => {
                                         <Input value={basicInfo.timezone} onChange={e=>setBasicInfo({...basicInfo, timezone: e.target.value})}/>
                                     </FormControl>
                                     <FormControl><FormLabel>{t('intervalSec')}</FormLabel>
-                                        {/* FIX: Use valString (first arg) to allow empty input without NaN */}
                                         <NumberInput value={basicInfo.run_interval_seconds} onChange={(valStr) => setBasicInfo({...basicInfo, run_interval_seconds: valStr})}>
                                             <NumberInputField /><NumberInputStepper><NumberIncrementStepper /><NumberDecrementStepper /></NumberInputStepper>
                                         </NumberInput>
@@ -368,6 +490,7 @@ const HostFormPage = () => {
                                         onChange={(val) => setBasicInfo({...basicInfo, geminiapikey: val})}
                                         isTestMode={isTestMode}
                                     />
+                                    <FormHelperText>Key này sẽ được dùng nếu Stage không có Key riêng.</FormHelperText>
                                 </FormControl>
                             </VStack>
                         </CardBody>
@@ -393,7 +516,7 @@ const HostFormPage = () => {
                                         borderRadius="md" p={4} textAlign="center" cursor="pointer" _hover={{ borderColor: "blue.400", bg: hoverBg }}
                                         onClick={() => !basicInfo.networkdiagram && diagramInputRef.current.click()}
                                     >
-                                         <input type="file" ref={diagramInputRef} style={{ display: 'none' }} accept="image/*" onChange={e => handleFileUpload(e, 'diagram')} />
+                                         <input type="file" ref={diagramInputRef} style={{ display: 'none' }} accept=".jpg,.jpeg,.png,.webp" onChange={e => handleFileUpload(e, 'diagram')} />
                                          {basicInfo.networkdiagram ? (
                                             <Box position="relative">
                                                 <HStack justify="center" spacing={2}>
@@ -411,6 +534,7 @@ const HostFormPage = () => {
                                             <VStack spacing={1}><AttachmentIcon boxSize={5} color="gray.400" /><Text fontSize="sm" color="gray.500">{t('clickToUpload')}</Text></VStack>
                                          )}
                                     </Box>
+                                    <FormHelperText fontSize="xs">Hỗ trợ: JPG, PNG, WEBP.</FormHelperText>
                                 </FormControl>
 
                                 <Divider />
@@ -423,7 +547,7 @@ const HostFormPage = () => {
                                                 <InputLeftElement pointerEvents="none"><SearchIcon color="gray.300" /></InputLeftElement>
                                                 <Input placeholder={t('search')} value={contextSearch} onChange={e => setContextSearch(e.target.value)} />
                                             </InputGroup>
-                                            <input type="file" ref={contextInputRef} style={{display: 'none'}} onChange={e => handleFileUpload(e, 'context')} />
+                                            <input type="file" ref={contextInputRef} style={{display: 'none'}} accept=".pdf,.txt,.md,.json,.log,.png,.jpg" onChange={e => handleFileUpload(e, 'context')} />
                                             <Tooltip label={t('uploadNew')}><IconButton size="sm" icon={<AddIcon />} onClick={() => contextInputRef.current.click()} /></Tooltip>
                                             
                                             <Tooltip label={t('deleteSelected')}>
@@ -444,6 +568,7 @@ const HostFormPage = () => {
                                             </Checkbox>
                                         )) : <Text fontSize="xs" color="gray.500">{t('noFilesFound')}</Text>}
                                     </Box>
+                                    <FormHelperText fontSize="xs">Hỗ trợ: PDF, TXT, MD, JSON, LOG, Ảnh.</FormHelperText>
                                 </FormControl>
                             </VStack>
                         </CardBody>
@@ -520,7 +645,6 @@ const HostFormPage = () => {
                                                 />
                                             </FormControl>
 
-                                            {/* Swapped: Notifications moved UP */}
                                             <FormControl>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">{t('notifications')}</FormLabel>
                                                 <Button size="xs" fontWeight="normal" leftIcon={<EmailIcon />} width="full" onClick={() => openEmailModal(idx)} variant="outline">
@@ -545,7 +669,6 @@ const HostFormPage = () => {
                                                 </FormControl>
                                             )}
                                             
-                                            {/* Swapped: API Key moved DOWN and SPAN 2 */}
                                             <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
                                                 <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
                                                 <ApiKeySelector 

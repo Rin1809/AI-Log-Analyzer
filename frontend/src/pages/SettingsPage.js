@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useBeforeUnload, useNavigate, useBlocker } from 'react-router-dom';
 import {
   Box,
   Heading,
@@ -34,7 +34,8 @@ import {
   TagLabel,
   TagRightIcon,
   Wrap,
-  WrapItem
+  WrapItem,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter
 } from '@chakra-ui/react';
 import { SettingsIcon, AttachmentIcon, AddIcon, DeleteIcon, StarIcon, InfoIcon} from '@chakra-ui/icons';
 import SmtpProfileModal from '../components/settings/SmtpProfileModal';
@@ -62,14 +63,22 @@ const toCamelCase = (str) => {
     return str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
 };
 
+// Deep compare
+const isObjectEqual = (obj1, obj2) => {
+    return JSON.stringify(obj1) === JSON.stringify(obj2);
+};
+
 const SettingsPage = () => {
   const { isTestMode, setIsTestMode } = useOutletContext();
   const { t } = useLanguage();
+  const navigate = useNavigate();
+
+  const [initialSettings, setInitialSettings] = useState(null);
   const [settings, setSettings] = useState({
     report_directory: '',
     prompt_directory: '',
     context_directory: '',
-    logo_path: '', // Added
+    logo_path: '', 
     smtp_profiles: {},
     active_smtp_profile: '',
     attach_context_files: false,
@@ -82,6 +91,7 @@ const SettingsPage = () => {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [currentProfile, setCurrentProfile] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
   
   const { isOpen: isKeyModalOpen, onOpen: onKeyModalOpen, onClose: onKeyModalClose } = useDisclosure();
 
@@ -98,17 +108,19 @@ const SettingsPage = () => {
     try {
       const response = await axios.get('/api/system-settings', { params: { test_mode: testMode } });
       const data = response.data || {};
-      setSettings({
+      const newSettings = {
         report_directory: data.report_directory || '',
         prompt_directory: data.prompt_directory || '',
         context_directory: data.context_directory || '',
-        logo_path: data.logo_path || '', // Added
+        logo_path: data.logo_path || '',
         smtp_profiles: data.smtp_profiles || {},
         active_smtp_profile: data.active_smtp_profile || '',
         attach_context_files: data.attach_context_files || false,
         scheduler_check_interval_seconds: data.scheduler_check_interval_seconds || 60,
         gemini_profiles: data.gemini_profiles || {}
-      });
+      };
+      setSettings(newSettings);
+      setInitialSettings(newSettings);
       setSchedulerType(data.scheduler_check_interval_seconds === 60 ? 'default' : 'custom');
     } catch (err) {
       console.error(err);
@@ -121,6 +133,38 @@ const SettingsPage = () => {
   useEffect(() => {
     fetchData(isTestMode);
   }, [fetchData, isTestMode]);
+
+  // Dirty Check
+  useEffect(() => {
+    if (!initialSettings) return;
+    setIsDirty(!isObjectEqual(settings, initialSettings));
+  }, [settings, initialSettings]);
+
+  // Prevent Browser Close/Refresh
+  useBeforeUnload(
+    useCallback((e) => {
+        if (isDirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    }, [isDirty])
+  );
+
+  // Router Blocking
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
+  );
+  
+  const { isOpen: isConfirmLeaveOpen, onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
+
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+        onConfirmLeaveOpen();
+    } else {
+        onConfirmLeaveClose();
+    }
+  }, [blocker.state, onConfirmLeaveOpen, onConfirmLeaveClose]);
+
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -145,6 +189,8 @@ const SettingsPage = () => {
         duration: 3000,
         isClosable: true,
       });
+      setInitialSettings(settings);
+      setIsDirty(false);
     } catch (err) {
       console.error(err);
       toast({ title: t('saveError'), description: err.message, status: "error", duration: 5000, isClosable: true });
@@ -185,8 +231,39 @@ const SettingsPage = () => {
 
   return (
     <VStack spacing={6} align="stretch">
-      <Heading size="lg" fontWeight="normal">{t('systemSettings')}</Heading>
+      <Flex justify="space-between" align="center">
+          <Heading size="lg" fontWeight="normal">{t('systemSettings')}</Heading>
+          {isDirty && (
+                <Tag colorScheme="orange" variant="solid" borderRadius="full">
+                    <TagLabel fontSize="xs">Unsaved Changes</TagLabel>
+                </Tag>
+            )}
+      </Flex>
       
+      {/* BLOCKER MODAL */}
+      {blocker.state === 'blocked' && (
+          <Modal isOpen={true} onClose={() => blocker.reset()} isCentered>
+              <ModalOverlay backdropFilter="blur(2px)"/>
+              <ModalContent>
+                  <ModalHeader>Cảnh báo</ModalHeader>
+                  <ModalBody>
+                      <Alert status="warning" borderRadius="md">
+                          <AlertIcon />
+                          Bạn có thay đổi chưa lưu. Nếu rời đi, dữ liệu sẽ bị mất.
+                      </Alert>
+                  </ModalBody>
+                  <ModalFooter>
+                      <Button variant="ghost" mr={3} onClick={() => blocker.reset()}>
+                          Ở lại trang
+                      </Button>
+                      <Button colorScheme="red" onClick={() => blocker.proceed()}>
+                          Rời đi
+                      </Button>
+                  </ModalFooter>
+              </ModalContent>
+          </Modal>
+      )}
+
       {error && <Alert status="error" borderRadius="md"><AlertIcon />{error}</Alert>}
 
       <Grid templateColumns={{ base: '1fr', lg: 'repeat(2, 1fr)' }} gap={6}>

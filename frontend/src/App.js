@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import Layout from './components/Layout';
 import MainDashboard from './pages/MainDashboard';
 import HostStatusPage from './pages/HostStatusPage';
@@ -51,22 +51,45 @@ const theme = extendTheme({
   },
 });
 
+// Define routes using the Data Router object structure
+const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <Layout />,
+    children: [
+      {
+        index: true,
+        element: <MainDashboard />,
+      },
+      {
+        path: "status",
+        element: <HostStatusPage />,
+      },
+      {
+        path: "status/add",
+        element: <HostFormPage />,
+      },
+      {
+        path: "status/edit/:hostId",
+        element: <HostFormPage />,
+      },
+      {
+        path: "reports",
+        element: <ReportsPage />,
+      },
+      {
+        path: "settings",
+        element: <SettingsPage />,
+      },
+    ],
+  },
+]);
+
 function App() {
   return (
     <ChakraProvider theme={theme}>
       <LanguageProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<MainDashboard />} />
-              <Route path="status" element={<HostStatusPage />} />
-              <Route path="status/add" element={<HostFormPage />} />
-              <Route path="status/edit/:hostId" element={<HostFormPage />} />
-              <Route path="reports" element={<ReportsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </LanguageProvider>
     </ChakraProvider>
   );

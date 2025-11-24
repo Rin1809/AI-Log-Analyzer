@@ -52,16 +52,20 @@ const SmtpProfileModal = ({ isOpen, onClose, onSave, profileData }) => {
   };
 
   const handleSaveClick = () => {
-    if (!profile.profile_name || !profile.server || !profile.port || !profile.sender_email) {
-      toast({
-        title: t('missingInfo'),
-        description: t('fillAllFields'),
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
+    // Basic Validation
+    if (!profile.profile_name || !profile.profile_name.trim()) {
+       return toast({ title: t('missingInfo'), description: "Profile Name is required.", status: "warning" });
     }
+    if (!profile.server || !profile.server.trim()) {
+        return toast({ title: t('missingInfo'), description: "SMTP Server is required.", status: "warning" });
+    }
+    if (!profile.port) {
+        return toast({ title: t('missingInfo'), description: "Port is required.", status: "warning" });
+    }
+    if (!profile.sender_email || !profile.sender_email.trim()) {
+        return toast({ title: t('missingInfo'), description: "Sender Email is required.", status: "warning" });
+    }
+
     onSave(profile);
     onClose();
   };

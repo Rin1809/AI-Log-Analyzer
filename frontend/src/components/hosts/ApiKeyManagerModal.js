@@ -16,10 +16,8 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
     const [isSaving, setIsSaving] = useState(false);
     const { t } = useLanguage();
     
-    // Selection State for Bulk Delete
     const [selectedItems, setSelectedItems] = useState(new Set());
 
-    // Edit/Add State
     const [editingKey, setEditingKey] = useState(null); 
     const [formName, setFormName] = useState('');
     const [formKey, setFormKey] = useState('');
@@ -99,7 +97,7 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
 
     const handleSaveClick = async () => {
         if (!formName.trim() || !formKey.trim()) {
-            toast({ title: t('missingInfo'), status: "warning" });
+            toast({ title: t('missingInfo'), description: "Name and Key are required.", status: "warning" });
             return;
         }
 
@@ -152,7 +150,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                     ) : (
                         <HStack spacing={0} w="full" h="full" alignItems="stretch">
                             <Box w="40%" borderRightWidth="1px" borderColor={borderColor} bg={listBg} display="flex" flexDirection="column">
-                                {/* Header Action */}
                                 <Box p={3} borderBottomWidth="1px" borderColor={borderColor}>
                                     <Button 
                                         w="full" size="sm" leftIcon={<AddIcon />} colorScheme="gray" variant="outline" fontWeight="normal"
@@ -163,7 +160,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                     </Button>
                                 </Box>
 
-                                {/* Scrollable List */}
                                 <Box flex="1" overflowY="auto">
                                     {profileKeys.length === 0 ? (
                                         <Center h="100px" flexDirection="column">
@@ -211,7 +207,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                     )}
                                 </Box>
 
-                                {/* BULK DELETE BAR */}
                                 {selectedItems.size > 0 && (
                                     <Flex 
                                         p={3} 
@@ -239,7 +234,6 @@ const ApiKeyManagerModal = ({ isOpen, onClose, isTestMode, onProfilesChange }) =
                                 )}
                             </Box>
 
-                            {/* RIGHT COLUMN: FORM */}
                             <Box w="60%" p={6} overflowY="auto" bg={formColBg}>
                                 <VStack spacing={5} align="stretch">
                                     <Box>
