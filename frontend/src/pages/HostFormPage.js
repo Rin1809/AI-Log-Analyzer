@@ -199,6 +199,8 @@ const PipelineStageCard = React.memo(({
         </Box>
     );
 }, (prev, next) => {
+    // Custom compare để tránh re-render không cần thiết
+    // Nhưng quan trọng nhất là reference của prev.stage vs next.stage phải khác nhau khi update
     return (
         prev.stage === next.stage &&
         prev.idx === next.idx &&
@@ -228,10 +230,9 @@ const HostFormPage = () => {
     const contextInputRef = useRef(null);
     const diagramInputRef = useRef(null);
 
-    // FIX: Init using constant
     const [basicInfo, setBasicInfo] = useState(DEFAULT_HOST_INFO);
-
     const [pipeline, setPipeline] = useState([]);
+    
     const [geminiModels, setGeminiModels] = useState({});
     const [smtpProfiles, setSmtpProfiles] = useState([]);
     const [availableContextFiles, setAvailableContextFiles] = useState([]);
@@ -254,7 +255,7 @@ const HostFormPage = () => {
 
     const trashIconBg = useColorModeValue('gray.200', 'gray.600');
 
-    // --- DIRTY CHECK & BLOCKER (DEBOUNCED) ---
+    // --- DIRTY CHECK & BLOCKER ---
     useEffect(() => {
         if (!initialBasicInfo || !initialPipeline) return;
 
@@ -262,7 +263,7 @@ const HostFormPage = () => {
             const infoChanged = !isObjectEqual(basicInfo, initialBasicInfo);
             const pipelineChanged = !isObjectEqual(pipeline, initialPipeline);
             setIsDirty(infoChanged || pipelineChanged);
-        }, 300); // Debounce to prevent lag
+        }, 300);
 
         return () => {
             clearTimeout(handler);
@@ -282,7 +283,6 @@ const HostFormPage = () => {
         ({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname
     );
 
-    // FIX: Removed unused 'isOpen' alias
     const { onOpen: onConfirmLeaveOpen, onClose: onConfirmLeaveClose } = useDisclosure();
 
     useEffect(() => {
@@ -298,6 +298,7 @@ const HostFormPage = () => {
         navigate('/status');
     };
 
+    // --- STAGE MANIPULATION ---
     const addStage = () => {
         const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
         const newStage = {
@@ -331,45 +332,81 @@ const HostFormPage = () => {
     };
 
     const updateStage = (idx, field, value) => {
-        const newP = [...pipeline];
-        newP[idx] = { ...newP[idx], [field]: value };
-        setPipeline(newP);
+        setPipeline(prev => {
+            const newP = [...prev];
+            // Clone stage object to trigger memo re-render
+            newP[idx] = { ...newP[idx], [field]: value };
+            return newP;
+        });
     };
     
+    // --- SUBSTAGE (WORKER) MANIPULATION - FIXED DEEP CLONE ---
     const handleAddSubstage = (stageIdx) => {
         const defaultModel = Object.values(geminiModels)[0] || 'gemini-2.5-flash-lite';
-        const newP = [...pipeline];
-        if (!newP[stageIdx].substages) newP[stageIdx].substages = [];
         
-        newP[stageIdx].substages.push({
-            name: `Worker ${newP[stageIdx].substages.length + 1}`,
-            enabled: true,
-            model: defaultModel,
-            prompt_file: 'prompt_template.md',
-            gemini_api_key: '' 
+        setPipeline(prev => {
+            const newP = [...prev];
+            // Deep clone stage & substages array
+            const stage = { ...newP[stageIdx] };
+            const substages = stage.substages ? [...stage.substages] : [];
+            
+            substages.push({
+                name: `Worker ${substages.length + 1}`,
+                enabled: true,
+                model: defaultModel,
+                prompt_file: 'prompt_template.md',
+                gemini_api_key: '' 
+            });
+            
+            stage.substages = substages;
+            newP[stageIdx] = stage;
+            return newP;
         });
-        setPipeline(newP);
     };
 
     const handleRemoveSubstage = (stageIdx, subIdx) => {
-         const newP = [...pipeline];
-         newP[stageIdx].substages.splice(subIdx, 1);
-         setPipeline(newP);
+         setPipeline(prev => {
+            const newP = [...prev];
+            const stage = { ...newP[stageIdx] };
+            const substages = [...(stage.substages || [])];
+            
+            substages.splice(subIdx, 1);
+            
+            stage.substages = substages;
+            newP[stageIdx] = stage;
+            return newP;
+         });
     };
 
     const handleUpdateSubstage = (stageIdx, subIdx, field, value) => {
-         const newP = [...pipeline];
-         newP[stageIdx].substages[subIdx] = { ...newP[stageIdx].substages[subIdx], [field]: value };
-         setPipeline(newP);
+         setPipeline(prev => {
+            const newP = [...prev];
+            const stage = { ...newP[stageIdx] };
+            const substages = [...(stage.substages || [])];
+            
+            // Update specific substage
+            substages[subIdx] = { ...substages[subIdx], [field]: value };
+            
+            stage.substages = substages;
+            newP[stageIdx] = stage;
+            return newP;
+         });
     };
     
     const handleUpdateSummaryConf = (stageIdx, field, value) => {
-        const newP = [...pipeline];
-        if (!newP[stageIdx].summary_conf) newP[stageIdx].summary_conf = {};
-        newP[stageIdx].summary_conf = { ...newP[stageIdx].summary_conf, [field]: value };
-        setPipeline(newP);
+        setPipeline(prev => {
+            const newP = [...prev];
+            const stage = { ...newP[stageIdx] };
+            
+            // Clone summary_conf
+            stage.summary_conf = { ...stage.summary_conf, [field]: value };
+            
+            newP[stageIdx] = stage;
+            return newP;
+        });
     };
 
+    // --- INIT DATA ---
     useEffect(() => {
         const init = async () => {
             try {
@@ -398,7 +435,6 @@ const HostFormPage = () => {
                 } else {
                     const defPl = createDefaultPipeline(models.data);
                     setPipeline(defPl);
-                    // FIX: Use DEFAULT_HOST_INFO constant to avoid dependency warning
                     setInitialBasicInfo(DEFAULT_HOST_INFO);
                     setInitialPipeline(defPl);
                 }
@@ -418,20 +454,19 @@ const HostFormPage = () => {
         ];
     }
 
+    // --- FILE UPLOAD LOGIC ---
     const handleFileUpload = async (e, type) => {
         const file = e.target.files[0];
         if (!file) return;
 
         const ext = file.name.split('.').pop().toLowerCase();
         
-        // // CLIENT SIDE VALIDATION
         if (type === 'diagram') {
             const allowedImages = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
             if (!allowedImages.includes(ext)) {
                  return toast({ title: t('error'), description: "Network Diagram must be an image (jpg, png, webp).", status: 'error' });
             }
         } else {
-            // Check blacklist CSV or allowlist for context
             const allowedContext = ['pdf', 'txt', 'md', 'json', 'log', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif'];
             if (!allowedContext.includes(ext)) {
                  return toast({ title: t('error'), description: `File type .${ext} is not supported for context.`, status: 'error' });
@@ -495,6 +530,7 @@ const HostFormPage = () => {
         setFilesToDelete([]);
     };
 
+    // --- EMAIL LOGIC ---
     const openEmailModal = (idx) => {
         setCurrentStageIndex(idx);
         setIsEmailModalOpen(true);
