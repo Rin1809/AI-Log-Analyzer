@@ -10,6 +10,7 @@ Dưới đây là một chuỗi các báo cáo và bối cảnh hệ thống.
 
 **Tóm tắt (JSON)**
 Cung cấp một đoạn JSON tóm tắt, phản ánh **toàn bộ giai đoạn** được phân tích.
+- `status`: Trạng thái. `"pass"` nếu có thông tin để tổng hợp. `"warning"` nếu dữ liệu đầu vào quá ít hoặc không có gì đáng kể.
 - `overall_security_trend`: Xu hướng an ninh chung trong kỳ ("Cải thiện", "Ổn định", "Xấu đi").
 - `key_strategic_recommendation`: Kiến nghị quan trọng nhất, ngắn gọn (ví dụ: "Cần rà soát toàn bộ quy tắc tường lửa cho các máy chủ quan trọng", "Ưu tiên triển khai giải pháp xác thực đa yếu tố cho VPN").
 - `total_critical_events_final`: Tổng số lượng `total_alerts_period` từ tất cả các báo cáo tổng hợp đầu vào.
@@ -17,6 +18,7 @@ Cung cấp một đoạn JSON tóm tắt, phản ánh **toàn bộ giai đoạn*
 Ví dụ JSON:
 ```json
 {{
+  "status": "pass",
   "overall_security_trend": "Ổn định",
   "key_strategic_recommendation": "Rà soát và củng cố chính sách cho VPN remote access",
   "total_critical_events_final": 45
