@@ -69,6 +69,7 @@ class PipelineSubStage(BaseModel):
     gemini_api_key: Optional[str] = ""
 
 class PipelineSummaryConf(BaseModel):
+    name: Optional[str] = "Reduce" # Added name field
     model: Optional[str] = None
     prompt_file: Optional[str] = None
     gemini_api_key: Optional[str] = ""

@@ -129,7 +129,12 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
 def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_key, system_settings, test_mode=False):
     stage_name = stage_config.get('name', 'Periodic')
     substages = stage_config.get('substages', [])
+    summary_conf = stage_config.get('summary_conf') or {}
     
+    # 1. Determine configuration for Main Worker (Chunk 0) and Reduce
+    reduce_name = summary_conf.get('name') 
+    if not reduce_name: reduce_name = f"{stage_name}_Reduce"
+
     logging.info(f"[{host_section}] >>> Running Stage 0: {stage_name}")
 
     log_file = host_config.get(host_section, 'LogFile')
@@ -173,7 +178,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     active_workers_payload = []
 
-    # // 1. Assign Chunk 0 to Main Worker
+    # // 1. Assign Chunk 0 to Main Worker (Use Stage Name as worker name)
     stage_specific_key_raw = stage_config.get('gemini_api_key')
     final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else main_raw_api_key
 
@@ -181,7 +186,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         chunk_str = "\n".join(chunks[0])
         active_workers_payload.append({
             "config": {
-                "name": "Main_Worker",
+                "name": stage_name, # IMPORTANT: Worker 0 takes the name of the Stage
                 "model": stage_config.get('model'),
                 "prompt_file": stage_config.get('prompt_file'),
                 "gemini_api_key": final_main_key_raw
@@ -189,7 +194,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             "content": chunk_str
         })
 
-    # // 2. Assign subsequent chunks to Substages (Workers)
+    # // 2. Assign subsequent chunks to Substages
     for i in range(1, len(chunks)):
         sub_idx = i - 1
         if sub_idx < len(substages):
@@ -201,6 +206,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "content": chunk_str
                 })
         else:
+            # Not enough workers configured for chunks, ignore remainder
             pass 
 
     if not active_workers_payload:
@@ -237,23 +243,27 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             try:
                 data = future.result()
                 
-                # // UPDATE: Chi luu file worker fragment khi co > 1 worker
-                if is_multi_worker_run:
-                    worker_stats = utils.extract_json_from_text(data['result'])
-                    worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
-                    
-                    worker_report_data = {
-                        "hostname": hostname,
-                        "worker_name": worker_name,
-                        "analysis_start_time": start_time.isoformat(),
-                        "analysis_end_time": end_time.isoformat(),
-                        "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-                        "summary_stats": worker_stats,
-                        "analysis_details_markdown": worker_md,
-                        "stage_index": 0,
-                        "report_type": f"worker_fragment" 
-                    }
-                    report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, f"{stage_name}_{worker_name}")
+                # // ALWAYS SAVE INDIVIDUAL REPORTS (Partial)
+                # This ensures user sees "loc_log", "w1", "w2" in Reports list
+                worker_stats = utils.extract_json_from_text(data['result'])
+                worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
+                
+                # Use worker_name as the report_type so it shows up distinctly
+                worker_report_data = {
+                    "hostname": hostname,
+                    "worker_name": worker_name,
+                    "analysis_start_time": start_time.isoformat(),
+                    "analysis_end_time": end_time.isoformat(),
+                    "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
+                    "summary_stats": worker_stats,
+                    "analysis_details_markdown": worker_md,
+                    "stage_index": 0,
+                    "report_type": worker_name # Use 'loc_log' or 'w1' etc.
+                }
+                
+                # We save it, but if it's single chunk, this will be the ONLY report.
+                # If multi-chunk, this is a fragment.
+                report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, worker_name)
                 
                 if data['status'] == 'success':
                     successful_results.append(data)
@@ -270,18 +280,32 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         logging.error(f"[{host_section}] ALL Workers failed. Aborting pipeline.")
         return False
 
-    # --- REDUCE STEP ---
+    # --- REDUCE STEP LOGIC ---
     final_markdown = ""
     final_stats = {}
+    final_report_type = stage_name # Default for single chunk
     
-    if len(successful_results) == 1 and not failed_workers:
-        logging.info(f"[{host_section}] Single result, skipping reduce. Using result as Final.")
+    if len(successful_results) == 1 and not failed_workers and not is_multi_worker_run:
+        # --- CASE 1: Single Chunk (< Chunk Size) ---
+        logging.info(f"[{host_section}] Single chunk. No Reduce needed.")
         raw_text = successful_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
+        final_report_type = stage_name # e.g. "loc_log"
+        
+        # Note: We already saved the file above in the loop. 
+        # But for email logic below, we need these variables.
+
     else:
-        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce) for {len(successful_results)} results...")
+        # --- CASE 2 & 3: Multi Chunk (> Chunk Size) -> REDUCE ---
+        logging.info(f"[{host_section}] >>> Running Reduce '{reduce_name}' for {len(successful_results)} results...")
+        
         combined_inputs = []
+        # Sort results to maintain order if possible, though ThreadPool might shuffle
+        # We can sort by worker name or just append. 
+        # Ideally Chunk 0 is first.
+        successful_results.sort(key=lambda x: x['worker'] != stage_name) # Put Main stage first
+
         for res in successful_results:
             combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
         
@@ -290,7 +314,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
         full_combined_text = "\n\n".join(combined_inputs)
 
-        summary_conf = stage_config.get('summary_conf') or {}
         reduce_model = summary_conf.get('model') or stage_config.get('model')
         reduce_prompt_file_name = summary_conf.get('prompt_file') or 'summary_prompt_template.md'
         reduce_prompt_file = os.path.join(prompt_dir, reduce_prompt_file_name)
@@ -300,15 +323,15 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         
         reduce_api_key, reduce_alias = resolve_api_key_with_alias(reduce_key_raw, system_settings)
 
-        # // RETRY LOGIC FOR REDUCE (NEW)
+        # // RETRY LOGIC FOR REDUCE
         reduce_result = "Fatal Gemini Error: Init"
         for att in range(3):
             try:
                 reduce_result = gemini_analyzer.analyze_with_gemini(
-                    f"{host_section}_SummarySubstage",
+                    f"{host_section}_Reduce",
                     full_combined_text,
                     bonus_context_text,
-                    reduce_api_key,
+                    reduce_api_key, # Key 4
                     reduce_prompt_file,
                     reduce_model,
                     key_alias=reduce_alias,
@@ -317,47 +340,50 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                 )
                 if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
                      raise Exception(reduce_result)
-                break # Success
+                break 
             except Exception as e:
                 logging.warning(f"[{host_section}] Reduce failed attempt {att+1}: {e}")
                 time.sleep(2)
 
-        # // CHECK FINAL ERROR
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
-            logging.error(f"[{host_section}] SummarySubstage (Reduce) Failed.")
-            # // FIX: FORCE EMPTY STATS TO TRIGGER FRONTEND ERROR
+            logging.error(f"[{host_section}] Reduce Failed.")
             final_stats = {} 
             final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n" + full_combined_text
         else:
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
+            
+            # Normalization
             if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
                 final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
             if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
                 final_stats["alerts_count"] = final_stats["total_alerts_period"]
 
-    report_data = {
-        "hostname": hostname, 
-        "analysis_start_time": start_time.isoformat(), 
-        "analysis_end_time": end_time.isoformat(),
-        "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-        "raw_log_count": log_count, 
-        "summary_stats": final_stats, 
-        "analysis_details_markdown": final_markdown,
-        "stage_index": 0,
-        "parallel_workers_active": len(active_workers_payload),
-        "failed_workers": failed_workers
-    }
-    
-    report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
-    if not report_file: return False
+        # SAVE REDUCE REPORT
+        final_report_type = reduce_name
+        reduce_report_data = {
+            "hostname": hostname,
+            "analysis_start_time": start_time.isoformat(),
+            "analysis_end_time": end_time.isoformat(),
+            "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
+            "raw_log_count": log_count,
+            "summary_stats": final_stats,
+            "analysis_details_markdown": final_markdown,
+            "stage_index": 0,
+            "parallel_workers_active": len(active_workers_payload),
+            "failed_workers": failed_workers,
+            "report_type": reduce_name
+        }
+        report_generator.save_structured_report(host_section, reduce_report_data, timezone, report_dir, reduce_name)
 
+
+    # Finalize Timestamp
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     
     # --- EMAIL ---
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
-        email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        email_subject = f"[{final_report_type}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
             try:
@@ -386,25 +412,60 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, main_raw_api_key, system_settings, test_mode=False):
 
     stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
-    prev_stage_name = prev_stage_config.get('name', f'Stage_{current_stage_idx-1}')
+    
+    # Logic to find previous stage name to match report folders
+    # If previous stage was Stage 0, we need to know what the 'Final' report type was.
+    # Case 1 (Small): loc_log. Case 2 (Big): reduce1.
+    # Problem: Pipeline Config doesn't know if the last run was small or big.
+    # Solution: We check BOTH folders or check based on report_type in the JSON.
+    
     threshold = int(stage_config.get('trigger_threshold', 10))
     
     logging.info(f"[{host_section}] >>> Checking trigger for Stage {current_stage_idx} ({stage_name}). Need {threshold} reports.")
 
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     host_report_dir = os.path.join(report_dir, host_section)
-    prev_stage_slug = report_generator.slugify(prev_stage_name)
-    search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
-    all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=False)
     
+    # 1. Determine potential source folders
+    prev_stage_name = prev_stage_config.get('name', f'Stage_{current_stage_idx-1}')
+    prev_stage_slug = report_generator.slugify(prev_stage_name)
+    
+    possible_folders = [prev_stage_slug]
+    
+    # If prev stage was Stage 0, also check for Reduce Name
+    if current_stage_idx == 1:
+        prev_summary_conf = prev_stage_config.get('summary_conf') or {}
+        reduce_name = prev_summary_conf.get('name') or f"{prev_stage_name}_Reduce"
+        possible_folders.append(report_generator.slugify(reduce_name))
+
     valid_reports = []
-    for p in all_prev_reports:
-        try:
-            with open(p, 'r', encoding='utf-8') as f:
-                d = json.load(f)
-                if d.get('report_type') != 'worker_fragment':
-                    valid_reports.append(p)
-        except: pass
+    
+    for folder in possible_folders:
+        search_pattern = os.path.join(host_report_dir, folder, "*", "*.json")
+        found_files = glob.glob(search_pattern, recursive=True)
+        
+        for p in found_files:
+            try:
+                with open(p, 'r', encoding='utf-8') as f:
+                    d = json.load(f)
+                    
+                    # Filter logic:
+                    # We only want the FINAL reports of the previous stage.
+                    # For Stage 0: 
+                    #   - If it was single chunk, type = "loc_log" (prev_stage_name)
+                    #   - If it was multi chunk, type = "reduce1" (reduce_name)
+                    #   - We DO NOT want "w1", "w2", or "loc_log" (if it was part of multi-chunk... wait)
+                    
+                    r_type = d.get('report_type')
+                    if r_type in [prev_stage_name, reduce_name]:
+                        # Avoid duplicates if folders overlap (unlikely but safe)
+                        if p not in valid_reports:
+                            valid_reports.append(p)
+                            
+            except: pass
+            
+    # Sort by time
+    valid_reports.sort(key=os.path.getmtime, reverse=False)
 
     reports_to_process = valid_reports[:threshold]
     
@@ -465,7 +526,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         "summary_stats": stats, 
         "analysis_details_markdown": result_md,
         "source_reports": reports_to_process,
-        "stage_index": current_stage_idx
+        "stage_index": current_stage_idx,
+        "report_type": stage_name
     }
     
     report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)

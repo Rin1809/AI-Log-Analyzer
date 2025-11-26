@@ -182,18 +182,31 @@ const MapReduceEditor = ({
                                 _hover={{ borderColor: hoverBorder, boxShadow: "sm" }}
                                 transition="all 0.2s"
                             >
-                                <Flex align="center" mb={3}>
-                                    <Badge colorScheme="orange" variant="subtle" fontSize="0.8em" fontWeight="normal" px={2} py={1} borderRadius="full" mr={2}>
-                                        REDUCE
-                                    </Badge>
-                                    <Text fontSize="sm" fontWeight="normal" color="gray.600" _dark={{color: "gray.300"}}>
-                                        {t('reduceConfig')}
-                                    </Text>
+                                <Flex align="center" mb={3} justify="space-between">
+                                    <Flex align="center">
+                                        <Badge colorScheme="orange" variant="subtle" fontSize="0.8em" fontWeight="normal" px={2} py={1} borderRadius="full" mr={2}>
+                                            REDUCE
+                                        </Badge>
+                                        <Text fontSize="sm" fontWeight="normal" color="gray.600" _dark={{color: "gray.300"}}>
+                                            {t('reduceConfig')}
+                                        </Text>
+                                    </Flex>
                                 </Flex>
                                 
                                 <Divider mb={3} />
                                 
                                 <SimpleGrid columns={{base: 1, xl: 2}} spacing={3}>
+                                    <FormControl>
+                                        <FormLabel fontSize="xs" mb={0} color="gray.500">Reduce Name</FormLabel>
+                                        <Input 
+                                            size="xs" 
+                                            value={summaryConf?.name || ''} 
+                                            onChange={e => onUpdateSummary('name', e.target.value)}
+                                            bg={selectBg}
+                                            placeholder="e.g. reduce1"
+                                        />
+                                    </FormControl>
+
                                     <FormControl>
                                         <FormLabel fontSize="xs" mb={0} color="gray.500">{t('model')}</FormLabel>
                                         <Select 
@@ -216,7 +229,7 @@ const MapReduceEditor = ({
                                         />
                                     </FormControl>
                                     
-                                    <FormControl gridColumn={{xl: "span 2"}}>
+                                    <FormControl>
                                         <FormLabel fontSize="xs" mb={0} color="gray.500">{t('apiKey')} (Optional)</FormLabel>
                                         <ApiKeySelector 
                                             value={summaryConf?.gemini_api_key || ''}
