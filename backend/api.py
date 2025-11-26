@@ -80,6 +80,7 @@ class PipelineStage(BaseModel):
     model: str
     prompt_file: str
     recipient_emails: str = ""
+    email_subject: Optional[str] = "" # // Them field custom subject
     trigger_threshold: int = 1
     substages: List[PipelineSubStage] = [] 
     summary_conf: Optional[PipelineSummaryConf] = None 

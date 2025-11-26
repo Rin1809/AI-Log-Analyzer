@@ -383,7 +383,13 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     # --- EMAIL ---
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
-        email_subject = f"[{final_report_type}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        # // Logic subject custom
+        custom_subject = stage_config.get('email_subject', '').strip()
+        if custom_subject:
+             email_subject = f"{custom_subject} - {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        else:
+             email_subject = f"[{final_report_type}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
             try:
@@ -534,7 +540,13 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     recipients = stage_config.get('recipient_emails', '')
     if recipients:
-        email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
+        # // Logic subject custom
+        custom_subject = stage_config.get('email_subject', '').strip()
+        if custom_subject:
+             email_subject = f"{custom_subject} - {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
+        else:
+             email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
+
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
             try:

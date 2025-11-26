@@ -167,6 +167,16 @@ const PipelineStageCard = React.memo(({
                         isTestMode={isTestMode}
                     />
                 </FormControl>
+
+                 <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
+                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('emailSubject')}</FormLabel>
+                    <Input 
+                        size="xs" 
+                        placeholder="e.g. Báo cáo An Ninh Hàng Ngày"
+                        value={stage.email_subject || ''} 
+                        onChange={e => onUpdateStage(idx, 'email_subject', e.target.value)} 
+                    />
+                </FormControl>
             </SimpleGrid>
             
 
@@ -309,6 +319,7 @@ const HostFormPage = () => {
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
             gemini_api_key: '',
             recipient_emails: '',
+            email_subject: '', // Them default value
             substages: [], 
             summary_conf: {} 
         };
@@ -449,8 +460,8 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', substages: [], summary_conf: {} },
-            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '' },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', email_subject: '', substages: [], summary_conf: {} },
+            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '', email_subject: '' },
         ];
     }
 
