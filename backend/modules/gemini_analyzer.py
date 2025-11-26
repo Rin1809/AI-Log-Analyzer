@@ -49,7 +49,7 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
             prompt_template = f.read()
     except FileNotFoundError:
         logging.error(f"[{host_id}] Loi: Khong tim thay file template '{prompt_file}'.")
-        return f"Lỗi hệ thống: Không tìm thấy file '{prompt_file}'."
+        return f"Fatal Gemini Error: Không tìm thấy file '{prompt_file}'."
 
     prompt_filename = os.path.basename(prompt_file).lower()
     is_summary_or_final = 'summary' in prompt_filename
@@ -61,7 +61,7 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
             prompt_text = prompt_template.format(logs_content=content, bonus_context=bonus_context)
     except KeyError as e:
         logging.error(f"[{host_id}] Loi placeholder trong prompt '{prompt_file}'. Chi tiet: {e}")
-        return f"Lỗi cấu hình: Placeholder không đúng trong file prompt '{prompt_file}'."
+        return f"Fatal Gemini Error: Placeholder không đúng trong file prompt '{prompt_file}'."
 
     # // Kiem tra xem co phai ban moi (ho tro Client) hay khong
     has_client_support = hasattr(genai, 'Client')
@@ -120,13 +120,21 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                     config=types.GenerateContentConfig(safety_settings=safety_settings_modern)
                 )
                 
-                if not response.text:
-                     finish_reason = "UNKNOWN"
-                     if response.candidates and response.candidates[0].finish_reason:
-                        finish_reason = response.candidates[0].finish_reason.name
-                     return f"Gemini blocked response. Reason: {finish_reason}"
+                # // FIX CRASH: Handle response.text accessor error safely
+                try:
+                    text_response = response.text
+                except ValueError:
+                    # Thuong do bi block hoac empty candidates
+                    finish_reason = "UNKNOWN"
+                    try:
+                        if response.candidates and response.candidates[0].finish_reason:
+                            finish_reason = response.candidates[0].finish_reason.name
+                    except: pass
+                    
+                    return f"Fatal Gemini Error: Gemini blocked response. Reason: {finish_reason}"
                 
-                text_response = response.text
+                if not text_response:
+                     return f"Fatal Gemini Error: Empty response from Gemini."
 
             else:
                 # --- LEGACY MODE (LOCKED) ---
@@ -146,9 +154,9 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                     if not response.parts:
                         try:
                             if response.prompt_feedback and response.prompt_feedback.block_reason:
-                                return f"Gemini blocked response. Reason: {response.prompt_feedback.block_reason}"
+                                return f"Fatal Gemini Error: Gemini blocked response. Reason: {response.prompt_feedback.block_reason}"
                         except: pass
-                        return "Gemini blocked response (Empty response)."
+                        return "Fatal Gemini Error: Gemini blocked response (Empty response parts)."
 
                     text_response = response.text
 
@@ -167,6 +175,6 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
             
         except Exception as e:
             logging.error(f"[{host_id}] Fatal Gemini Error: {e}")
-            return f"Đã xảy ra lỗi không thể phục hồi khi gọi Gemini: {e}"
+            return f"Fatal Gemini Error: {str(e)}"
 
-    return "Không thể nhận phân tích từ Gemini sau nhiều lần thử lại (Lỗi mạng hoặc Rate Limit)."
+    return "Fatal Gemini Error: Không thể nhận phân tích từ Gemini sau nhiều lần thử lại (Lỗi mạng hoặc Rate Limit)."

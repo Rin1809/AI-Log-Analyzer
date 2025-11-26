@@ -103,6 +103,7 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
                 context_file_paths=binary_files
             )
             
+            # // Check for fatal errors in string response
             if "Gemini blocked response" in result or "Fatal Gemini Error" in result:
                 raise Exception(f"AI Error: {result}")
             
@@ -147,8 +148,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
     logo_path = system_settings.get('System', 'logo_path', fallback=None)
 
-    # // Total Capacity = Main + N Workers
-    # // Logic: Chia chunk lan luot. Main lay chunk 0. Workers lay chunk 1..N
     total_workers_available = 1 + len(substages)
     total_capacity_lines = chunk_size * total_workers_available
     
@@ -168,7 +167,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     bonus_context_text, binary_files = context_loader.read_bonus_context_files(host_config, host_section)
 
     log_lines = full_log_content.splitlines()
-    # // Split logs into max chunks equal to workers available
     chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
     
     logging.info(f"[{host_section}] Total Logs: {log_count} lines. Available Workers: {total_workers_available}. Split into {len(chunks)} chunks.")
@@ -192,7 +190,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         })
 
     # // 2. Assign subsequent chunks to Substages (Workers)
-    # // Chi dung worker neu co du log (chunks > 1)
     for i in range(1, len(chunks)):
         sub_idx = i - 1
         if sub_idx < len(substages):
@@ -204,7 +201,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "content": chunk_str
                 })
         else:
-            logging.info(f"[{host_section}] Chunk {i} ignored: No more workers available.")
             pass 
 
     if not active_workers_payload:
@@ -215,6 +211,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     successful_results = []
     failed_workers = []
+    
+    is_multi_worker_run = len(active_workers_payload) > 1
 
     def _execute_task(task_payload):
         return process_chunk_worker(
@@ -239,51 +237,45 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             try:
                 data = future.result()
                 
-                # // Save Individual Worker Report
-                worker_stats = utils.extract_json_from_text(data['result'])
-                worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
+                # // UPDATE: Chi luu file worker fragment khi co > 1 worker
+                if is_multi_worker_run:
+                    worker_stats = utils.extract_json_from_text(data['result'])
+                    worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
+                    
+                    worker_report_data = {
+                        "hostname": hostname,
+                        "worker_name": worker_name,
+                        "analysis_start_time": start_time.isoformat(),
+                        "analysis_end_time": end_time.isoformat(),
+                        "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
+                        "summary_stats": worker_stats,
+                        "analysis_details_markdown": worker_md,
+                        "stage_index": 0,
+                        "report_type": f"worker_fragment" 
+                    }
+                    report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, f"{stage_name}_{worker_name}")
                 
-                worker_report_data = {
-                    "hostname": hostname,
-                    "worker_name": worker_name,
-                    "analysis_start_time": start_time.isoformat(),
-                    "analysis_end_time": end_time.isoformat(),
-                    "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-                    "summary_stats": worker_stats,
-                    "analysis_details_markdown": worker_md,
-                    "stage_index": 0,
-                    "report_type": f"worker_fragment" # Special type
-                }
-                # Save as separate file: e.g. StageName_WorkerName
-                report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, f"{stage_name}_{worker_name}")
-
                 if data['status'] == 'success':
                     successful_results.append(data)
                     logging.info(f"[{host_section}] Worker '{worker_name}' SUCCESS.")
                 else:
                     failed_workers.append(worker_name)
-                    logging.error(f"[{host_section}] Worker '{worker_name}' FAILED (Saved error log).")
+                    logging.error(f"[{host_section}] Worker '{worker_name}' FAILED.")
 
             except Exception as exc:
                 logging.error(f"[{host_section}] Thread execution failed for '{worker_name}': {exc}")
                 failed_workers.append(worker_name)
 
-
-
     if not successful_results:
         logging.error(f"[{host_section}] ALL Workers failed. Aborting pipeline.")
         return False
 
-    if failed_workers:
-        logging.warning(f"[{host_section}] Partial Success. Failed workers: {failed_workers}. Proceeding with {len(successful_results)} results.")
-
     # --- REDUCE STEP ---
     final_markdown = ""
     final_stats = {}
-
-
+    
     if len(successful_results) == 1 and not failed_workers:
-        logging.info(f"[{host_section}] Single result, skipping reduce.")
+        logging.info(f"[{host_section}] Single result, skipping reduce. Using result as Final.")
         raw_text = successful_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
@@ -308,26 +300,37 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         
         reduce_api_key, reduce_alias = resolve_api_key_with_alias(reduce_key_raw, system_settings)
 
-        reduce_result = gemini_analyzer.analyze_with_gemini(
-            f"{host_section}_SummarySubstage",
-            full_combined_text,
-            bonus_context_text,
-            reduce_api_key,
-            reduce_prompt_file,
-            reduce_model,
-            key_alias=reduce_alias,
-            test_mode=test_mode,
-            context_file_paths=binary_files
-        )
-        
+        # // RETRY LOGIC FOR REDUCE (NEW)
+        reduce_result = "Fatal Gemini Error: Init"
+        for att in range(3):
+            try:
+                reduce_result = gemini_analyzer.analyze_with_gemini(
+                    f"{host_section}_SummarySubstage",
+                    full_combined_text,
+                    bonus_context_text,
+                    reduce_api_key,
+                    reduce_prompt_file,
+                    reduce_model,
+                    key_alias=reduce_alias,
+                    test_mode=test_mode,
+                    context_file_paths=binary_files
+                )
+                if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
+                     raise Exception(reduce_result)
+                break # Success
+            except Exception as e:
+                logging.warning(f"[{host_section}] Reduce failed attempt {att+1}: {e}")
+                time.sleep(2)
+
+        # // CHECK FINAL ERROR
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
             logging.error(f"[{host_section}] SummarySubstage (Reduce) Failed.")
-            final_stats = {"total_blocked_events": 0, "alerts_count": 0, "fallback": True}
+            # // FIX: FORCE EMPTY STATS TO TRIGGER FRONTEND ERROR
+            final_stats = {} 
             final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n" + full_combined_text
         else:
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
-            # Normalize keys
             if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
                 final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
             if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
@@ -393,8 +396,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
     all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=False)
-
-
+    
     valid_reports = []
     for p in all_prev_reports:
         try:
