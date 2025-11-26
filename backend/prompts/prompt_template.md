@@ -14,6 +14,7 @@ Lưu ý: Bạn phải tự xác định 3 chỉ số quan trọng nhất dựa t
 - Ví dụ log Linux: "Lỗi SSH", "Sudo failures", "Service Crashed".
 
 Cấu trúc JSON bắt buộc:
+- `status`: Trạng thái. `"pass"` nếu có thông tin để tổng hợp. `"warning"` nếu dữ liệu đầu vào quá ít hoặc không có gì đáng kể.
 ```json
 {{
   "status": "pass", 

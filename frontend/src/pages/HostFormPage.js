@@ -236,6 +236,7 @@ const HostFormPage = () => {
     const [geminiModels, setGeminiModels] = useState({});
     const [smtpProfiles, setSmtpProfiles] = useState([]);
     const [availableContextFiles, setAvailableContextFiles] = useState([]);
+    const [availableEmailTemplates, setAvailableEmailTemplates] = useState([]); // NEW STATE
     
     const [contextSearch, setContextSearch] = useState('');
     const [filesToDelete, setFilesToDelete] = useState([]);
@@ -244,7 +245,8 @@ const HostFormPage = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [currentStageIndex, setCurrentStageIndex] = useState(null);
     const [emailInput, setEmailInput] = useState('');
-    const [emailSubjectInput, setEmailSubjectInput] = useState(''); // NEW STATE FOR MODAL INPUT
+    const [emailSubjectInput, setEmailSubjectInput] = useState(''); 
+    const [emailTemplateInput, setEmailTemplateInput] = useState(''); // NEW STATE
 
     const bg = useColorModeValue("white", "gray.800");
     const hoverBg = useColorModeValue('gray.50', 'gray.700');
@@ -310,7 +312,8 @@ const HostFormPage = () => {
             trigger_threshold: pipeline.length === 0 ? 1 : 12,
             gemini_api_key: '',
             recipient_emails: '',
-            email_subject: '', // Them default value
+            email_subject: '',
+            email_template: '', // Default empty
             substages: [], 
             summary_conf: {} 
         };
@@ -412,14 +415,16 @@ const HostFormPage = () => {
     useEffect(() => {
         const init = async () => {
             try {
-                const [models, settings, files] = await Promise.all([
+                const [models, settings, files, templates] = await Promise.all([
                     axios.get('/api/gemini-models'),
                     axios.get('/api/system-settings', { params: { test_mode: isTestMode }}),
-                    axios.get('/api/context-files', { params: { test_mode: isTestMode }})
+                    axios.get('/api/context-files', { params: { test_mode: isTestMode }}),
+                    axios.get('/api/email-templates'), // Fetch templates
                 ]);
                 setGeminiModels(models.data);
                 setSmtpProfiles(Object.keys(settings.data.smtp_profiles || {}));
                 setAvailableContextFiles(files.data.map(f => `Bonus_context/${f}`));
+                setAvailableEmailTemplates(templates.data || []);
 
                 if (hostId) {
                     const res = await axios.get(`/api/hosts/${hostId}`, { params: { test_mode: isTestMode }});
@@ -451,8 +456,8 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', email_subject: '', substages: [], summary_conf: {} },
-            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '', email_subject: '' },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', email_subject: '', email_template: '', substages: [], summary_conf: {} },
+            { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '', email_subject: '', email_template: '' },
         ];
     }
 
@@ -536,15 +541,23 @@ const HostFormPage = () => {
     const openEmailModal = (idx) => {
         setCurrentStageIndex(idx);
         setEmailInput('');
-        // Load existing subject or empty string
         setEmailSubjectInput(pipeline[idx].email_subject || '');
+        setEmailTemplateInput(pipeline[idx].email_template || ''); // Load current template
         setIsEmailModalOpen(true);
     };
 
     const handleCloseEmailModal = () => {
         if (currentStageIndex !== null) {
-            // Save the subject when closing
-            updateStage(currentStageIndex, 'email_subject', emailSubjectInput);
+            // Save fields on close
+            setPipeline(prev => {
+                const newP = [...prev];
+                newP[currentStageIndex] = { 
+                    ...newP[currentStageIndex], 
+                    email_subject: emailSubjectInput,
+                    email_template: emailTemplateInput 
+                };
+                return newP;
+            });
         }
         setIsEmailModalOpen(false);
     };
@@ -854,7 +867,7 @@ const HostFormPage = () => {
                     <ModalHeader fontWeight="normal" >{t('manageEmails')} - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
-                        <FormControl mb={5}>
+                        <FormControl mb={3}>
                              <FormLabel fontSize="sm" color="gray.600">{t('emailSubject')}</FormLabel>
                              <Input 
                                 placeholder={t('emailSubjectPlaceholder')}
@@ -862,6 +875,20 @@ const HostFormPage = () => {
                                 onChange={(e) => setEmailSubjectInput(e.target.value)} 
                             />
                             <FormHelperText fontSize="xs">Để trống sẽ dùng tiêu đề mặc định.</FormHelperText>
+                        </FormControl>
+
+                         <FormControl mb={5}>
+                             <FormLabel fontSize="sm" color="gray.600">{t('emailTemplate')}</FormLabel>
+                             <Select 
+                                value={emailTemplateInput} 
+                                onChange={(e) => setEmailTemplateInput(e.target.value)}
+                                placeholder={t('defaultTemplate')}
+                             >
+                                 {availableEmailTemplates.map(tpl => (
+                                     <option key={tpl} value={tpl}>{tpl}</option>
+                                 ))}
+                             </Select>
+                             <FormHelperText fontSize="xs">Chọn file HTML mẫu (nằm trong thư mục backend).</FormHelperText>
                         </FormControl>
 
                         <Divider mb={4} />

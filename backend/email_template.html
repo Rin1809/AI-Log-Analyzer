@@ -1,7 +1,3 @@
-**Bước 2:** Cập nhật Email Template để hiển thị các chỉ số động này (Generic).
-
-`[backend/email_template.html]`
-```html
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -28,13 +24,13 @@
 <body>
     <div class="container">
         <div class="header">
-            <img src="cid:logo_novaon" alt="Logo" style="max-height: 60px;">
+            <img src="cid:logo_novaon" alt="Logo" style="max-height: 100px;">
             <h2 style="margin: 10px 0 5px; color: #333;">BÁO CÁO HỆ THỐNG</h2>
             <p style="margin: 0; color: #777; font-size: 14px;">Hostname: <strong>{hostname}</strong></p>
         </div>
 
         <div class="content">
-            <p>Xin chào,</p>
+            <p>Dear all,</p>
             <p>Dưới đây là kết quả phân tích log tự động từ <strong>{start_time}</strong> đến <strong>{end_time}</strong>.</p>
             <p style="font-style: italic; color: #555; background: #fff3cd; padding: 10px; border-radius: 4px;">"{short_summary}"</p>
 
@@ -71,6 +67,7 @@
 
         <div class="footer">
             <p>Email tự động từ System AI Agent NOVAON.</p>
+            <p>Thank all.</p>
         </div>
     </div>
 </body>

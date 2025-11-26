@@ -357,7 +357,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     # Finalize Timestamp
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     
-    # --- EMAIL SENDING (GENERIC MAPPING) ---
+    # --- EMAIL SENDING ---
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
         custom_subject = stage_config.get('email_subject', '').strip()
@@ -366,7 +366,15 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
             try:
-                tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
+                # 1. Custom Template
+                selected_template = stage_config.get('email_template')
+                if selected_template and os.path.exists(selected_template):
+                     tpl_path = selected_template
+                else:
+                     # 2. Default Fallback for Stage 0 (Periodic)
+                     tpl_path = os.path.join(prompt_dir, '..', 'email_template.html')
+                     if not os.path.exists(tpl_path): tpl_path = 'email_template.html'
+
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
                 
                 diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
@@ -387,7 +395,10 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     stat_3_value=final_stats.get("stat_3_value", "N/A"),
                     short_summary=final_stats.get("short_summary", "Không có tóm tắt"),
                     start_time=start_time.strftime('%H:%M %d-%m'), 
-                    end_time=end_time.strftime('%H:%M %d-%m')
+                    end_time=end_time.strftime('%H:%M %d-%m'),
+                    security_trend=final_stats.get("stat_1_value", "N/A"), # Fallback mapping for Final template
+                    key_recommendation=final_stats.get("stat_2_value", "N/A"),
+                    total_events=final_stats.get("stat_3_value", "N/A")
                 )
                 
                 atts = get_attachments(host_config, host_section, system_settings)
@@ -396,7 +407,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     return True
 
-def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, main_raw_api_key, system_settings, test_mode=False):
+def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, main_raw_api_key, system_settings, test_mode=False, is_last_stage=False):
 
     stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
     threshold = int(stage_config.get('trigger_threshold', 10))
@@ -503,8 +514,32 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
             try:
-                tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'summary_email_template.html')
-                if not os.path.exists(tpl_path): tpl_path = os.path.join(system_settings.get('System', 'prompt_directory'), '..', 'email_template.html')
+                # --- TEMPLATE SELECTION LOGIC ---
+                # 1. Custom Template User Selected
+                selected_template = stage_config.get('email_template')
+                if selected_template and os.path.exists(selected_template):
+                    tpl_path = selected_template
+                else:
+                    # 2. Auto Select based on Stage
+                    backend_root = os.path.dirname(os.path.abspath(__file__))
+                    
+                    if is_last_stage:
+                        # Priority: final_summary > summary > email
+                        p1 = os.path.join(backend_root, 'final_summary_email_template.html')
+                        p2 = os.path.join(backend_root, 'summary_email_template.html')
+                        p3 = os.path.join(backend_root, 'email_template.html')
+                        
+                        if os.path.exists(p1): tpl_path = p1
+                        elif os.path.exists(p2): tpl_path = p2
+                        else: tpl_path = p3
+                    else:
+                        # Priority: summary > email
+                        p2 = os.path.join(backend_root, 'summary_email_template.html')
+                        p3 = os.path.join(backend_root, 'email_template.html')
+                        
+                        if os.path.exists(p2): tpl_path = p2
+                        else: tpl_path = p3
+
                 with open(tpl_path, 'r', encoding='utf-8') as f: tpl = f.read()
                 
                 diag = host_config.get(host_section, 'NetworkDiagram', fallback=None)
@@ -514,6 +549,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                      tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
 
                 # --- MAPPING GENERIC METRICS FOR SUMMARY ---
+                # Template Final may use different keys (security_trend, etc.), generic uses stat_1...
+                # We map stat_X to specific keys just in case the template uses them
                 body = tpl.format(
                     hostname=hostname, 
                     analysis_result=markdown.markdown(result_md),
@@ -525,7 +562,11 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     stat_3_value=stats.get("stat_3_value", "N/A"),
                     short_summary=stats.get("short_summary", "Không có tóm tắt"),
                     start_time=start_time.strftime('%d-%m') if start_time else "?", 
-                    end_time=end_time.strftime('%d-%m') if end_time else "?"
+                    end_time=end_time.strftime('%d-%m') if end_time else "?",
+                    # Extra mapping for Final Template
+                    security_trend=stats.get("stat_1_value", "N/A"),
+                    key_recommendation=stats.get("stat_2_value", "N/A"),
+                    total_events=stats.get("stat_3_value", "N/A")
                 )
                 email_service.send_email(host_section, email_subject, body, smtp, recipients, diag, reports_to_process, logo_path=logo_path)
             except Exception as e: logging.error(f"Email error {stage_name}: {e}")
@@ -556,7 +597,8 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
                     curr_buff = state_manager.get_stage_buffer_count(host_section, 1, test_mode)
                     state_manager.save_stage_buffer_count(host_section, 1, curr_buff + 1, test_mode)
 
-    for i in range(1, len(pipeline)):
+    total_stages = len(pipeline)
+    for i in range(1, total_stages):
         current_stage = pipeline[i]
         if not current_stage.get('enabled', True): continue
         prev_stage = pipeline[i-1]
@@ -564,7 +606,8 @@ def process_host_pipeline(host_config, host_section, system_settings, test_mode=
         current_buffer = state_manager.get_stage_buffer_count(host_section, i, test_mode)
         
         if current_buffer >= threshold:
-            success = run_pipeline_stage_n(host_config, host_section, i, current_stage, prev_stage, main_raw_api_key, system_settings, test_mode)
+            is_last = (i == total_stages - 1)
+            success = run_pipeline_stage_n(host_config, host_section, i, current_stage, prev_stage, main_raw_api_key, system_settings, test_mode, is_last_stage=is_last)
             if success:
                 state_manager.save_stage_buffer_count(host_section, i, 0, test_mode)
                 if i + 1 < len(pipeline):

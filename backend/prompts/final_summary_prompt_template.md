@@ -8,6 +8,7 @@ Bạn là Senior Security Consultant. Nhiệm vụ: Tổng hợp báo cáo quả
 
 **1. Dashboard Stats (JSON)**
 Chọn ra 3 chỉ số KPI quan trọng nhất để báo cáo quản lý.
+- `status`: Trạng thái. `"pass"` nếu có thông tin để tổng hợp. `"warning"` nếu dữ liệu đầu vào quá ít hoặc không có gì đáng kể.
 ```json
 {{
   "status": "pass",

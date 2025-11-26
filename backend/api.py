@@ -37,7 +37,7 @@ ALLOWED_CONTEXT_EXTENSIONS = {
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="5.1.0")
+app = FastAPI(title="AI-log-analyzer API", version="5.2.1")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], allow_origin_regex='https?://.*')
@@ -69,7 +69,7 @@ class PipelineSubStage(BaseModel):
     gemini_api_key: Optional[str] = ""
 
 class PipelineSummaryConf(BaseModel):
-    name: Optional[str] = "Reduce" # Added name field
+    name: Optional[str] = "Reduce" 
     model: Optional[str] = None
     prompt_file: Optional[str] = None
     gemini_api_key: Optional[str] = ""
@@ -80,7 +80,8 @@ class PipelineStage(BaseModel):
     model: str
     prompt_file: str
     recipient_emails: str = ""
-    email_subject: Optional[str] = "" # // Them field custom subject
+    email_subject: Optional[str] = ""
+    email_template: Optional[str] = "" 
     trigger_threshold: int = 1
     substages: List[PipelineSubStage] = [] 
     summary_conf: Optional[PipelineSummaryConf] = None 
@@ -190,7 +191,6 @@ async def get_dashboard_stats(test_mode: bool = False):
             try:
                 with open(r_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # // Only count finalized reports or stage 0 main reports
                     if data.get('stage_index') == 0:
                         count = data.get('raw_log_count', 0)
                         total_analyzed += int(count) if count else 0
@@ -354,6 +354,12 @@ async def list_prompts(test_mode: bool = False):
     if not os.path.isdir(prompt_dir): return []
     return [f for f in os.listdir(prompt_dir) if f.endswith('.md')]
 
+@app.get("/api/email-templates", response_model=List[str])
+async def list_email_templates():
+    """List available .html email templates in the backend root directory."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return [f for f in os.listdir(current_dir) if f.endswith('.html')]
+
 @app.get("/api/prompts/{filename}")
 async def get_prompt_content(filename: str, test_mode: bool = False):
     sys_config = get_system_config_parser(test_mode)
@@ -463,9 +469,23 @@ async def preview_report_email(path: str, test_mode: bool = False):
     try:
         with open(safe_path, 'r', encoding='utf-8') as f: data = json.load(f)
         prompt_dir = sys_settings.get('System', 'prompt_directory', fallback='prompts')
-        is_summary = 'summary' in data.get('report_type', 'unknown').lower()
-        tpl_path = os.path.join(prompt_dir, '..', 'summary_email_template.html' if is_summary else 'email_template.html')
-        if not os.path.exists(tpl_path): tpl_path = os.path.join('summary_email_template.html' if is_summary else 'email_template.html')
+        
+        # --- PREVIEW LOGIC: Guess template based on report type content ---
+        r_type = data.get('report_type', 'unknown').lower()
+        backend_root = os.path.dirname(os.path.abspath(__file__))
+        
+        if 'final' in r_type or 'daily' in r_type:
+             # Try final template first
+             tpl_path = os.path.join(backend_root, 'final_summary_email_template.html')
+             if not os.path.exists(tpl_path): 
+                 tpl_path = os.path.join(backend_root, 'summary_email_template.html')
+        elif 'summary' in r_type:
+             tpl_path = os.path.join(backend_root, 'summary_email_template.html')
+        else:
+             tpl_path = os.path.join(backend_root, 'email_template.html')
+             
+        if not os.path.exists(tpl_path):
+             tpl_path = os.path.join(backend_root, 'email_template.html')
 
         with open(tpl_path, 'r', encoding='utf-8') as f: template = f.read()
 
@@ -488,7 +508,11 @@ async def preview_report_email(path: str, test_mode: bool = False):
             stat_3_label=stats.get("stat_3_label", "Metric 3"),
             stat_3_value=stats.get("stat_3_value", "N/A"),
             short_summary=stats.get("short_summary", "Không có tóm tắt"),
-            start_time=st, end_time=et
+            start_time=st, end_time=et,
+            # Extra mapping for Final Template preview
+            security_trend=stats.get("stat_1_value", "N/A"),
+            key_recommendation=stats.get("stat_2_value", "N/A"),
+            total_events=stats.get("stat_3_value", "N/A")
         )
         return {"html": final_html}
     except Exception as e: return {"html": f"<h1>Rendering Error</h1><p>{str(e)}</p>"}

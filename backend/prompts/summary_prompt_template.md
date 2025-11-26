@@ -8,6 +8,7 @@ Bạn là chuyên gia phân tích hệ thống. Nhiệm vụ: Tổng hợp các 
 
 **1. Tóm tắt (JSON)**
 Tổng hợp số liệu từ các báo cáo con để đưa ra 3 chỉ số đại diện cho cả giai đoạn.
+- `status`: Trạng thái. `"pass"` nếu có thông tin để tổng hợp. `"warning"` nếu dữ liệu đầu vào quá ít hoặc không có gì đáng kể.
 ```json
 {{
   "status": "pass",
