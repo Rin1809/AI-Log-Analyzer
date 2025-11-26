@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 app = FastAPI(title="AI-log-analyzer API", version="5.0.3")
 
 origins = ["http://localhost", "http://localhost:3000"]
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], allow_origin_regex='https?://.*')
 
 def get_active_config_file(test_mode: bool) -> str:
     return TEST_CONFIG_FILE if test_mode else CONFIG_FILE

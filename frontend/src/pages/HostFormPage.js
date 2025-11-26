@@ -167,16 +167,6 @@ const PipelineStageCard = React.memo(({
                         isTestMode={isTestMode}
                     />
                 </FormControl>
-
-                 <FormControl gridColumn={{base: "span 1", lg: "span 2"}}>
-                    <FormLabel fontSize="xs" mb={0} color="gray.500">{t('emailSubject')}</FormLabel>
-                    <Input 
-                        size="xs" 
-                        placeholder="e.g. Báo cáo An Ninh Hàng Ngày"
-                        value={stage.email_subject || ''} 
-                        onChange={e => onUpdateStage(idx, 'email_subject', e.target.value)} 
-                    />
-                </FormControl>
             </SimpleGrid>
             
 
@@ -254,6 +244,7 @@ const HostFormPage = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [currentStageIndex, setCurrentStageIndex] = useState(null);
     const [emailInput, setEmailInput] = useState('');
+    const [emailSubjectInput, setEmailSubjectInput] = useState(''); // NEW STATE FOR MODAL INPUT
 
     const bg = useColorModeValue("white", "gray.800");
     const hoverBg = useColorModeValue('gray.50', 'gray.700');
@@ -544,8 +535,18 @@ const HostFormPage = () => {
     // --- EMAIL LOGIC ---
     const openEmailModal = (idx) => {
         setCurrentStageIndex(idx);
-        setIsEmailModalOpen(true);
         setEmailInput('');
+        // Load existing subject or empty string
+        setEmailSubjectInput(pipeline[idx].email_subject || '');
+        setIsEmailModalOpen(true);
+    };
+
+    const handleCloseEmailModal = () => {
+        if (currentStageIndex !== null) {
+            // Save the subject when closing
+            updateStage(currentStageIndex, 'email_subject', emailSubjectInput);
+        }
+        setIsEmailModalOpen(false);
     };
 
     const addEmail = () => {
@@ -847,12 +848,24 @@ const HostFormPage = () => {
             </Modal>
 
             {/* Email Management Modal */}
-            <Modal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} isCentered>
+            <Modal isOpen={isEmailModalOpen} onClose={handleCloseEmailModal} isCentered>
                 <ModalOverlay />
                 <ModalContent>
                     <ModalHeader fontWeight="normal" >{t('manageEmails')} - {currentStageIndex !== null && pipeline[currentStageIndex]?.name}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
+                        <FormControl mb={5}>
+                             <FormLabel fontSize="sm" color="gray.600">{t('emailSubject')}</FormLabel>
+                             <Input 
+                                placeholder={t('emailSubjectPlaceholder')}
+                                value={emailSubjectInput} 
+                                onChange={(e) => setEmailSubjectInput(e.target.value)} 
+                            />
+                            <FormHelperText fontSize="xs">Để trống sẽ dùng tiêu đề mặc định.</FormHelperText>
+                        </FormControl>
+
+                        <Divider mb={4} />
+
                         <HStack mb={4}>
                             <Input placeholder={t('enterEmail')} value={emailInput} onChange={(e) => setEmailInput(e.target.value)} />
                             <IconButton icon={<AddIcon />} onClick={addEmail} />
@@ -869,7 +882,7 @@ const HostFormPage = () => {
                         </Wrap>
                     </ModalBody>
                     <ModalFooter>
-                        <Button fontWeight={'normal'} onClick={() => setIsEmailModalOpen(false)}>{t('done')}</Button>
+                        <Button fontWeight={'normal'} onClick={handleCloseEmailModal}>{t('done')}</Button>
                     </ModalFooter>
                 </ModalContent>
             </Modal>

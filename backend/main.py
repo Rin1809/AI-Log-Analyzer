@@ -23,7 +23,7 @@ CONFIG_FILE = "config.ini"
 SYSTEM_SETTINGS_FILE = "system_settings.ini"
 
 # // Default fallback
-DEFAULT_CHUNK_SIZE = 2000
+DEFAULT_CHUNK_SIZE = 6000
 
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
@@ -131,7 +131,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     substages = stage_config.get('substages', [])
     summary_conf = stage_config.get('summary_conf') or {}
     
-    # 1. Determine configuration for Main Worker (Chunk 0) and Reduce
+
     reduce_name = summary_conf.get('name') 
     if not reduce_name: reduce_name = f"{stage_name}_Reduce"
 
@@ -178,7 +178,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     active_workers_payload = []
 
-    # // 1. Assign Chunk 0 to Main Worker (Use Stage Name as worker name)
     stage_specific_key_raw = stage_config.get('gemini_api_key')
     final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else main_raw_api_key
 
@@ -186,7 +185,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         chunk_str = "\n".join(chunks[0])
         active_workers_payload.append({
             "config": {
-                "name": stage_name, # IMPORTANT: Worker 0 takes the name of the Stage
+                "name": stage_name, 
                 "model": stage_config.get('model'),
                 "prompt_file": stage_config.get('prompt_file'),
                 "gemini_api_key": final_main_key_raw
@@ -194,7 +193,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             "content": chunk_str
         })
 
-    # // 2. Assign subsequent chunks to Substages
+
     for i in range(1, len(chunks)):
         sub_idx = i - 1
         if sub_idx < len(substages):
@@ -243,8 +242,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             try:
                 data = future.result()
                 
-                # // ALWAYS SAVE INDIVIDUAL REPORTS (Partial)
-                # This ensures user sees "loc_log", "w1", "w2" in Reports list
+
                 worker_stats = utils.extract_json_from_text(data['result'])
                 worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
                 
@@ -261,8 +259,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "report_type": worker_name # Use 'loc_log' or 'w1' etc.
                 }
                 
-                # We save it, but if it's single chunk, this will be the ONLY report.
-                # If multi-chunk, this is a fragment.
+
                 report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, worker_name)
                 
                 if data['status'] == 'success':
@@ -293,18 +290,15 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
         final_report_type = stage_name # e.g. "loc_log"
         
-        # Note: We already saved the file above in the loop. 
-        # But for email logic below, we need these variables.
+
 
     else:
-        # --- CASE 2 & 3: Multi Chunk (> Chunk Size) -> REDUCE ---
+  
         logging.info(f"[{host_section}] >>> Running Reduce '{reduce_name}' for {len(successful_results)} results...")
         
         combined_inputs = []
-        # Sort results to maintain order if possible, though ThreadPool might shuffle
-        # We can sort by worker name or just append. 
-        # Ideally Chunk 0 is first.
-        successful_results.sort(key=lambda x: x['worker'] != stage_name) # Put Main stage first
+
+        successful_results.sort(key=lambda x: x['worker'] != stage_name) 
 
         for res in successful_results:
             combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
@@ -419,11 +413,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
 
     stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
     
-    # Logic to find previous stage name to match report folders
-    # If previous stage was Stage 0, we need to know what the 'Final' report type was.
-    # Case 1 (Small): loc_log. Case 2 (Big): reduce1.
-    # Problem: Pipeline Config doesn't know if the last run was small or big.
-    # Solution: We check BOTH folders or check based on report_type in the JSON.
+
     
     threshold = int(stage_config.get('trigger_threshold', 10))
     
@@ -432,13 +422,10 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     report_dir = system_settings.get('System', 'report_directory', fallback='reports')
     host_report_dir = os.path.join(report_dir, host_section)
     
-    # 1. Determine potential source folders
     prev_stage_name = prev_stage_config.get('name', f'Stage_{current_stage_idx-1}')
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     
     possible_folders = [prev_stage_slug]
-    
-    # If prev stage was Stage 0, also check for Reduce Name
     if current_stage_idx == 1:
         prev_summary_conf = prev_stage_config.get('summary_conf') or {}
         reduce_name = prev_summary_conf.get('name') or f"{prev_stage_name}_Reduce"
@@ -455,16 +442,9 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                 with open(p, 'r', encoding='utf-8') as f:
                     d = json.load(f)
                     
-                    # Filter logic:
-                    # We only want the FINAL reports of the previous stage.
-                    # For Stage 0: 
-                    #   - If it was single chunk, type = "loc_log" (prev_stage_name)
-                    #   - If it was multi chunk, type = "reduce1" (reduce_name)
-                    #   - We DO NOT want "w1", "w2", or "loc_log" (if it was part of multi-chunk... wait)
-                    
+
                     r_type = d.get('report_type')
                     if r_type in [prev_stage_name, reduce_name]:
-                        # Avoid duplicates if folders overlap (unlikely but safe)
                         if p not in valid_reports:
                             valid_reports.append(p)
                             
