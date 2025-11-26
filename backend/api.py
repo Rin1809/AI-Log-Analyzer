@@ -188,12 +188,12 @@ async def get_dashboard_stats(test_mode: bool = False):
             try:
                 with open(r_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    # // Only count finalized reports or stage 0 main reports
                     if data.get('stage_index') == 0:
                         count = data.get('raw_log_count', 0)
                         total_analyzed += int(count) if count else 0
             except: pass
 
-    # Get updated breakdown stats
     api_stats = state_manager.get_api_usage_stats(test_mode)
     
     return {
@@ -275,7 +275,6 @@ async def update_host(host_id: str, host_config: HostConfig, test_mode: bool = F
             new_host_id = get_host_id(host_config.syshostname)
             if new_host_id != host_id and config.has_section(new_host_id): raise HTTPException(409)
             
-            # Rename Report Dir Logic (Simplified)
             sys_settings = get_system_config_parser(test_mode)
             base_report_dir = sys_settings.get('System', 'report_directory', fallback='test_reports' if test_mode else 'reports')
             if new_host_id != host_id:
@@ -328,7 +327,6 @@ async def upload_context_file(test_mode: bool = False, file: UploadFile = File(.
     if not context_dir: raise HTTPException(400)
     os.makedirs(context_dir, exist_ok=True)
     
-    # // STRICT EXTENSION CHECK
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_CONTEXT_EXTENSIONS:
         raise HTTPException(400, detail=f"File type '{ext}' not allowed. Allowed: {', '.join(ALLOWED_CONTEXT_EXTENSIONS)}")
@@ -400,13 +398,20 @@ async def get_all_reports(test_mode: bool = False):
             parts = os.path.normpath(file_path).split(os.sep)
             host_id = next((p for p in parts if p.startswith(('Firewall_', 'Host_'))), None)
             if not host_id: continue 
-            with open(file_path, 'r', encoding='utf-8') as f: content = json.load(f)
-            reports.append(ReportInfo(
-                filename=os.path.basename(file_path), path=file_path,
-                hostname=hostname_map.get(host_id, host_id), type=content.get('report_type', 'unknown'),
-                generated_time=datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
-                summary_stats=content.get('summary_stats', {}), stage_index=content.get('stage_index', None)
-            ))
+            with open(file_path, 'r', encoding='utf-8') as f: 
+                content = json.load(f)
+
+                stats = content.get('summary_stats', {})
+                if 'raw_log_count' not in stats and 'raw_log_count' in content:
+                    stats['raw_log_count'] = content['raw_log_count']
+                
+                reports.append(ReportInfo(
+                    filename=os.path.basename(file_path), path=file_path,
+                    hostname=hostname_map.get(host_id, host_id), type=content.get('report_type', 'unknown'),
+                    generated_time=datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    summary_stats=stats, 
+                    stage_index=content.get('stage_index', None)
+                ))
         except: pass
     return reports
 

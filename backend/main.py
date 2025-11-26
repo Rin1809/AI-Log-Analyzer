@@ -73,8 +73,7 @@ def resolve_api_key_with_alias(raw_key, system_settings):
 # --- WORKER FUNCTION (Executes inside thread) ---
 def process_chunk_worker(worker_config, chunk_content, host_section, bonus_context_text, binary_files, system_settings, prompt_dir, test_mode=False):
     """
-    Worker function to process a log chunk.
-    Updated: Nhan bonus_context_text va binary_files
+    Worker function to process a log chunk with internal Retry Logic (3 times).
     """
     worker_name = worker_config.get('name', 'Worker')
     model_name = worker_config.get('model')
@@ -86,24 +85,42 @@ def process_chunk_worker(worker_config, chunk_content, host_section, bonus_conte
     
     logging.info(f"[{host_section}] Worker '{worker_name}' processing {len(chunk_content)} chars...")
     
-    result = gemini_analyzer.analyze_with_gemini(
-        f"{host_section}_{worker_name}", 
-        chunk_content, 
-        bonus_context_text, 
-        api_key, 
-        prompt_file, 
-        model_name,
-        key_alias=key_alias,
-        test_mode=test_mode,
-        context_file_paths=binary_files # Pass files here
-    )
+    # // RETRY LOGIC (3 Times)
+    max_retries = 3
+    last_error = None
     
-    if "Gemini blocked response" in result or "Fatal Gemini Error" in result:
-        raise Exception(f"Worker {worker_name} failed: {result}")
-        
+    for attempt in range(max_retries):
+        try:
+            result = gemini_analyzer.analyze_with_gemini(
+                f"{host_section}_{worker_name}", 
+                chunk_content, 
+                bonus_context_text, 
+                api_key, 
+                prompt_file, 
+                model_name,
+                key_alias=key_alias,
+                test_mode=test_mode,
+                context_file_paths=binary_files
+            )
+            
+            if "Gemini blocked response" in result or "Fatal Gemini Error" in result:
+                raise Exception(f"AI Error: {result}")
+            
+            return {
+                "worker": worker_name,
+                "result": result,
+                "status": "success"
+            }
+        except Exception as e:
+            last_error = e
+            logging.warning(f"[{host_section}] Worker '{worker_name}' failed attempt {attempt+1}/{max_retries}: {e}")
+            time.sleep(2) # Backoff nhe
+
+    logging.error(f"[{host_section}] Worker '{worker_name}' FAILED after {max_retries} attempts.")
     return {
         "worker": worker_name,
-        "result": result
+        "result": f"Worker Failed: {str(last_error)}",
+        "status": "failed"
     }
 
 # --- PIPELINE EXECUTION ---
@@ -130,7 +147,10 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     prompt_dir = system_settings.get('System', 'prompt_directory', fallback='prompts')
     logo_path = system_settings.get('System', 'logo_path', fallback=None)
 
-    total_capacity_lines = chunk_size * (1 + len(substages))
+    # // Total Capacity = Main + N Workers
+    # // Logic: Chia chunk lan luot. Main lay chunk 0. Workers lay chunk 1..N
+    total_workers_available = 1 + len(substages)
+    total_capacity_lines = chunk_size * total_workers_available
     
     read_result = log_reader.read_new_log_entries(log_file, hours, timezone, host_section, test_mode, custom_limit=total_capacity_lines)
     
@@ -145,17 +165,17 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
         return True
 
-    # --- UPDATED: Unpack tuple from context_loader ---
     bonus_context_text, binary_files = context_loader.read_bonus_context_files(host_config, host_section)
 
     log_lines = full_log_content.splitlines()
+    # // Split logs into max chunks equal to workers available
     chunks = [log_lines[i:i + chunk_size] for i in range(0, len(log_lines), chunk_size)]
     
-    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Split into {len(chunks)} chunks.")
+    logging.info(f"[{host_section}] Total Logs: {log_count} lines. Available Workers: {total_workers_available}. Split into {len(chunks)} chunks.")
 
     active_workers_payload = []
 
-    # // Main Worker (Chunk 0)
+    # // 1. Assign Chunk 0 to Main Worker
     stage_specific_key_raw = stage_config.get('gemini_api_key')
     final_main_key_raw = stage_specific_key_raw if stage_specific_key_raw and stage_specific_key_raw.strip() else main_raw_api_key
 
@@ -171,7 +191,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             "content": chunk_str
         })
 
-    # // Substages (Chunk 1..N)
+    # // 2. Assign subsequent chunks to Substages (Workers)
+    # // Chi dung worker neu co du log (chunks > 1)
     for i in range(1, len(chunks)):
         sub_idx = i - 1
         if sub_idx < len(substages):
@@ -183,15 +204,16 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "content": chunk_str
                 })
         else:
+            logging.info(f"[{host_section}] Chunk {i} ignored: No more workers available.")
             pass 
 
     if not active_workers_payload:
         logging.warning(f"[{host_section}] No chunks to process.")
         return False
 
-    logging.info(f"[{host_section}] >>> Parallel Activation: Spawning {len(active_workers_payload)} threads...")
+    logging.info(f"[{host_section}] >>> Parallel Execution: {len(active_workers_payload)} tasks.")
 
-    aggregated_results = []
+    successful_results = []
     failed_workers = []
 
     def _execute_task(task_payload):
@@ -199,8 +221,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             task_payload['config'],
             task_payload['content'],
             host_section,
-            bonus_context_text, # Pass text
-            binary_files,       # Pass files
+            bonus_context_text,
+            binary_files,
             system_settings,
             prompt_dir,
             test_mode
@@ -216,29 +238,64 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             worker_name = future_to_worker[future]
             try:
                 data = future.result()
-                aggregated_results.append(data)
-                logging.info(f"[{host_section}] Worker '{worker_name}' finished successfully.")
+                
+                # // Save Individual Worker Report
+                worker_stats = utils.extract_json_from_text(data['result'])
+                worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
+                
+                worker_report_data = {
+                    "hostname": hostname,
+                    "worker_name": worker_name,
+                    "analysis_start_time": start_time.isoformat(),
+                    "analysis_end_time": end_time.isoformat(),
+                    "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
+                    "summary_stats": worker_stats,
+                    "analysis_details_markdown": worker_md,
+                    "stage_index": 0,
+                    "report_type": f"worker_fragment" # Special type
+                }
+                # Save as separate file: e.g. StageName_WorkerName
+                report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, f"{stage_name}_{worker_name}")
+
+                if data['status'] == 'success':
+                    successful_results.append(data)
+                    logging.info(f"[{host_section}] Worker '{worker_name}' SUCCESS.")
+                else:
+                    failed_workers.append(worker_name)
+                    logging.error(f"[{host_section}] Worker '{worker_name}' FAILED (Saved error log).")
+
             except Exception as exc:
-                logging.error(f"[{host_section}] Worker '{worker_name}' failed: {exc}")
+                logging.error(f"[{host_section}] Thread execution failed for '{worker_name}': {exc}")
                 failed_workers.append(worker_name)
 
-    if failed_workers:
-        logging.error(f"[{host_section}] Critical: Workers failed ({failed_workers}). Aborting.")
+
+
+    if not successful_results:
+        logging.error(f"[{host_section}] ALL Workers failed. Aborting pipeline.")
         return False
+
+    if failed_workers:
+        logging.warning(f"[{host_section}] Partial Success. Failed workers: {failed_workers}. Proceeding with {len(successful_results)} results.")
 
     # --- REDUCE STEP ---
     final_markdown = ""
     final_stats = {}
-    
-    if len(aggregated_results) == 1:
-        raw_text = aggregated_results[0]['result']
+
+
+    if len(successful_results) == 1 and not failed_workers:
+        logging.info(f"[{host_section}] Single result, skipping reduce.")
+        raw_text = successful_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     else:
-        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce)...")
+        logging.info(f"[{host_section}] >>> Running SummarySubstage (Reduce) for {len(successful_results)} results...")
         combined_inputs = []
-        for res in aggregated_results:
+        for res in successful_results:
             combined_inputs.append(f"--- ANALYSIS PART FROM {res['worker']} ---\n{res['result']}")
+        
+        if failed_workers:
+             combined_inputs.append(f"--- WARNING ---\nThe following workers failed to process their chunks: {failed_workers}. This report is based on partial data.")
+
         full_combined_text = "\n\n".join(combined_inputs)
 
         summary_conf = stage_config.get('summary_conf') or {}
@@ -251,7 +308,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         
         reduce_api_key, reduce_alias = resolve_api_key_with_alias(reduce_key_raw, system_settings)
 
-        # Reduce cung can biet ve binary files (neu muon)
         reduce_result = gemini_analyzer.analyze_with_gemini(
             f"{host_section}_SummarySubstage",
             full_combined_text,
@@ -265,14 +321,13 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         )
         
         if "Gemini blocked response" in reduce_result or "Fatal Gemini Error" in reduce_result:
-            logging.error(f"[{host_section}] SummarySubstage Failed.")
+            logging.error(f"[{host_section}] SummarySubstage (Reduce) Failed.")
             final_stats = {"total_blocked_events": 0, "alerts_count": 0, "fallback": True}
-            final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n"
-            for res in aggregated_results:
-                final_markdown += f"\n### {res['worker']}\n{res['result']}\n"
+            final_markdown = "## AUTO-GENERATED CONCATENATION (AI REDUCE FAILED)\n\n" + full_combined_text
         else:
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
+            # Normalize keys
             if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
                 final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
             if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
@@ -287,7 +342,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         "summary_stats": final_stats, 
         "analysis_details_markdown": final_markdown,
         "stage_index": 0,
-        "parallel_workers_active": len(active_workers_payload)
+        "parallel_workers_active": len(active_workers_payload),
+        "failed_workers": failed_workers
     }
     
     report_file = report_generator.save_structured_report(host_section, report_data, timezone, report_dir, stage_name)
@@ -295,6 +351,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     
+    # --- EMAIL ---
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
         email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -336,8 +393,18 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     search_pattern = os.path.join(host_report_dir, prev_stage_slug, "*", "*.json")
     all_prev_reports = sorted(glob.glob(search_pattern, recursive=True), key=os.path.getmtime, reverse=False)
-    
-    reports_to_process = all_prev_reports[:threshold]
+
+
+    valid_reports = []
+    for p in all_prev_reports:
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+                if d.get('report_type') != 'worker_fragment':
+                    valid_reports.append(p)
+        except: pass
+
+    reports_to_process = valid_reports[:threshold]
     
     if len(reports_to_process) < threshold and not test_mode:
         logging.info(f"[{host_section}] Not enough reports ({len(reports_to_process)}/{threshold}). Waiting.")
@@ -367,7 +434,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
 
     content_to_analyze = "\n\n".join(combined_analysis)
 
-    # --- UPDATED: Get tuple ---
     bonus_context_text, binary_files = context_loader.read_bonus_context_files(host_config, host_section)
     
     stage_key_raw = stage_config.get('gemini_api_key')
@@ -379,7 +445,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
         host_section, content_to_analyze, bonus_context_text, 
         final_api_key, prompt_file, model_name,
         key_alias=key_alias, test_mode=test_mode,
-        context_file_paths=binary_files # Pass files here
+        context_file_paths=binary_files
     )
     
     if "Gemini blocked response" in result_raw or "Fatal Gemini Error" in result_raw:

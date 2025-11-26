@@ -66,10 +66,11 @@ const ReportsPage = () => {
     return () => clearInterval(intervalId);
   }, [fetchData, isTestMode]);
 
+
   const checkStatus = (stats, filterStatus) => {
-      if (!filterStatus) return true;
-      
-      const isError = !stats || Object.keys(stats).length === 0 || Object.values(stats).includes('N/A');
+
+
+    const isError = !stats || Object.keys(stats).length === 0 || stats.fallback === true;
       
       if (filterStatus === 'error') return isError;
       if (filterStatus === 'success') return !isError;
@@ -144,7 +145,6 @@ const ReportsPage = () => {
         });
         onReportModalOpen();
     } catch (err) {
-        // // Fix hardcoded string here
         toast({ title: t('error'), description: err.message, status: "error", duration: 5000 });
     }
   };
