@@ -252,7 +252,9 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "summary_stats": worker_stats,
                     "analysis_details_markdown": worker_md,
                     "stage_index": 0,
-                    "report_type": worker_name
+                    "report_type": worker_name,
+                    # // [FIX] QUAN TRONG: Luu raw_log_count cho cac report con de debug
+                    "raw_log_count": log_count if not is_multi_worker_run else 0 
                 }
 
                 report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, worker_name)
@@ -283,6 +285,11 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
         final_report_type = stage_name 
+        
+        # // [FIX] Cap nhat lai file bao cao cua single worker de chua raw_log_count chinh xac
+        # Vi luc save o tren thread, ta da save roi, nhung de chac an cho logic Chart, ta save lai hoac dam bao
+        # file worker o tren da co raw_log_count. (Da them o dong 230)
+        
     else:
         logging.info(f"[{host_section}] >>> Running Reduce '{reduce_name}' for {len(successful_results)} results...")
         
@@ -343,7 +350,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             "analysis_start_time": start_time.isoformat(),
             "analysis_end_time": end_time.isoformat(),
             "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-            "raw_log_count": log_count,
+            "raw_log_count": log_count, # // [FIX] QUAN TRONG: Luu so luong log goc
             "summary_stats": final_stats,
             "analysis_details_markdown": final_markdown,
             "stage_index": 0,

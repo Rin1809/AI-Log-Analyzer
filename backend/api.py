@@ -192,7 +192,11 @@ async def get_dashboard_stats(test_mode: bool = False):
                 with open(r_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if data.get('stage_index') == 0:
+                        # // [FIX] Lay raw_log_count tu root JSON, hoac tu summary_stats
                         count = data.get('raw_log_count', 0)
+                        if not count and 'summary_stats' in data:
+                             count = data['summary_stats'].get('raw_log_count', 0)
+                        
                         total_analyzed += int(count) if count else 0
             except: pass
 
@@ -410,6 +414,8 @@ async def get_all_reports(test_mode: bool = False):
                 content = json.load(f)
 
                 stats = content.get('summary_stats', {})
+                # // [FIX] QUAN TRONG: Ensure raw_log_count is passed to frontend in summary_stats
+                # Neu stats khong co, nhung root JSON co, thi copy vao
                 if 'raw_log_count' not in stats and 'raw_log_count' in content:
                     stats['raw_log_count'] = content['raw_log_count']
                 
