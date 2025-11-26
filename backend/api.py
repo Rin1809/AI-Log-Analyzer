@@ -37,7 +37,7 @@ ALLOWED_CONTEXT_EXTENSIONS = {
 LOGGING_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=LOGGING_FORMAT)
 
-app = FastAPI(title="AI-log-analyzer API", version="5.0.3")
+app = FastAPI(title="AI-log-analyzer API", version="5.1.0")
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"], allow_origin_regex='https?://.*')
@@ -477,26 +477,19 @@ async def preview_report_email(path: str, test_mode: bool = False):
             et = datetime.fromisoformat(et_str).strftime('%H:%M %d-%m')
         except: st, et = "?", "?"
 
-        if is_summary:
-            issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
-            blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
-            alert_count = stats.get("total_alerts_period", "N/A")
-            final_html = template.format(
-                hostname=data.get('hostname', 'Unknown'), analysis_result=html_analysis,
-                total_blocked=blocked, top_issue=issue, critical_alerts=alert_count,
-                start_time=st, end_time=et,
-                security_trend=stats.get("overall_security_trend", "N/A"),
-                key_recommendation=stats.get("key_strategic_recommendation", "N/A"),
-                total_events=stats.get("total_critical_events_final", "N/A")
-            )
-        else:
-            final_html = template.format(
-                hostname=data.get('hostname', 'Unknown'), analysis_result=html_analysis,
-                total_blocked=stats.get("total_blocked_events", "0"),
-                top_ip=stats.get("top_blocked_source_ip", "N/A"),
-                critical_alerts=stats.get("alerts_count", "0"),
-                start_time=st, end_time=et
-            )
+        # Generic Mapping Logic for Preview
+        final_html = template.format(
+            hostname=data.get('hostname', 'Unknown'), 
+            analysis_result=html_analysis,
+            stat_1_label=stats.get("stat_1_label", "Metric 1"),
+            stat_1_value=stats.get("stat_1_value", "N/A"),
+            stat_2_label=stats.get("stat_2_label", "Metric 2"),
+            stat_2_value=stats.get("stat_2_value", "N/A"),
+            stat_3_label=stats.get("stat_3_label", "Metric 3"),
+            stat_3_value=stats.get("stat_3_value", "N/A"),
+            short_summary=stats.get("short_summary", "Không có tóm tắt"),
+            start_time=st, end_time=et
+        )
         return {"html": final_html}
     except Exception as e: return {"html": f"<h1>Rendering Error</h1><p>{str(e)}</p>"}
 

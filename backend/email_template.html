@@ -1,174 +1,77 @@
+**Bước 2:** Cập nhật Email Template để hiển thị các chỉ số động này (Generic).
+
+`[backend/email_template.html]`
+```html
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Báo cáo Phân tích Log</title>
+    <title>Báo cáo Log Hệ thống</title>
     <style>
-        /* Basic styles */
-        body {{
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f7f6;
-            -webkit-font-smoothing: antialiased;
-        }}
-        table {{
-            border-collapse: collapse;
-        }}
-        .container {{
-            width: 100%;
-            max-width: 680px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-        }}
-        .header {{
-            padding: 30px;
-            text-align: center;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        .content {{
-            padding: 30px;
-            color: #333333;
-            line-height: 1.6;
-            font-size: 15px;
-        }}
-        .footer {{
-            background-color: #f8f9fa;
-            color: #888888;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            border-bottom-left-radius: 8px;
-            border-bottom-right-radius: 8px;
-        }}
-        .card {{
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            margin-top: 30px;
-            overflow: hidden;
-        }}
-        .card-header {{
-            background-color: #f7f7f7;
-            padding: 12px 20px;
-            border-bottom: 1px solid #e0e0e0;
-            font-weight: bold;
-            font-size: 16px;
-            color: #333;
-        }}
-        .card-body {{
-            padding: 20px;
-        }}
-        .metrics-container {{
-            width: 100%;
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        .metric-box {{
-            display: inline-block;
-            width: 30%;
-            vertical-align: top;
-            padding: 15px 5px;
-        }}
-        .metric-icon {{
-            height: 32px;
-            width: 32px;
-            margin-bottom: 10px;
-        }}
-        .metric-value {{
-            font-size: 24px;
-            font-weight: bold;
-            color: #2c3e50;
-            line-height: 1.2;
-        }}
-        .metric-label {{
-            font-size: 13px;
-            color: #555;
-            margin-top: 5px;
-        }}
-        /* Markdown generated content styles */
-        .content h1, .content h2, .content h3 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .content ul {{
-            padding-left: 20px;
-        }}
-        .content code {{
-            background-color: #e8eaed;
-            padding: 3px 6px;
-            border-radius: 4px;
-            font-family: "Courier New", Courier, monospace;
-            font-size: 14px;
-        }}
+        body {{ font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 0; }}
+        .container {{ max-width: 680px; margin: 0 auto; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; }}
+        .header {{ padding: 30px; text-align: center; border-bottom: 1px solid #eee; }}
+        .content {{ padding: 30px; color: #333; line-height: 1.6; }}
+        .metrics {{ display: flex; justify-content: space-between; margin-bottom: 30px; text-align: center; }}
+        .metric-box {{ width: 32%; padding: 10px; background: #f9f9f9; border-radius: 5px; box-sizing: border-box; }}
+        .metric-value {{ font-size: 20px; font-weight: bold; color: #2c3e50; margin-bottom: 5px; word-break: break-word; }}
+        .metric-label {{ font-size: 12px; color: #777; text-transform: uppercase; }}
+        .card {{ border: 1px solid #eee; border-radius: 5px; margin-top: 25px; }}
+        .card-header {{ background: #f7f7f7; padding: 10px 20px; font-weight: bold; border-bottom: 1px solid #eee; }}
+        .card-body {{ padding: 20px; overflow-x: auto; }}
+        .footer {{ background: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888; }}
+        img {{ max-width: 100%; height: auto; }}
+        code {{ background: #eee; padding: 2px 5px; border-radius: 3px; }}
     </style>
 </head>
 <body>
-    <table class="container" role="presentation" border="0" cellpadding="0" cellspacing="0">
-        <!-- Header with Logo -->
-        <tr>
-            <td class="header">
-                <img src="cid:logo_novaon" alt="NOVAON Logo" style="max-width: 200px; height: auto;">
-                <p style="margin: 15px 0 0; font-size: 20px; color: #333;">Báo Cáo Hệ Thống</p>
-                <p style="margin: 5px 0 0; font-size: 14px; color: #777;">Hostname: <strong>{hostname}</strong></p>
-            </td>
-        </tr>
+    <div class="container">
+        <div class="header">
+            <img src="cid:logo_novaon" alt="Logo" style="max-height: 60px;">
+            <h2 style="margin: 10px 0 5px; color: #333;">BÁO CÁO HỆ THỐNG</h2>
+            <p style="margin: 0; color: #777; font-size: 14px;">Hostname: <strong>{hostname}</strong></p>
+        </div>
 
-        <!-- Main Content -->
-        <tr>
-            <td class="content">
-                <p>Xin chào,</p>
-                <p>Dưới đây là bản tóm tắt và phân tích tự động log trong khoảng thời gian từ <strong>{start_time}</strong> đến <strong>{end_time}</strong>.</p>
-                
-                <!-- Metrics Summary -->
-                <table class="metrics-container" role="presentation" border="0" cellpadding="0" cellspacing="0">
-                    <tr>
-                        <td class="metric-box">
-                            <img class="metric-icon" src="https://img.icons8.com/ios/50/000000/shield.png" alt="Blocked">
-                            <div class="metric-value">{total_blocked}</div>
-                            <div class="metric-label">Sự kiện bị chặn</div>
-                        </td>
-                        <td class="metric-box">
-                            <img class="metric-icon" src="https://img.icons8.com/ios/50/000000/ip-address.png" alt="IP">
-                            <div class="metric-value">{top_ip}</div>
-                            <div class="metric-label">IP bị chặn nhiều nhất</div>
-                        </td>
-                        <td class="metric-box">
-                            <img class="metric-icon" src="https://img.icons8.com/ios/50/000000/error--v1.png" alt="Alert">
-                            <div class="metric-value">{critical_alerts}</div>
-                            <div class="metric-label">Cảnh báo</div>
-                        </td>
-                    </tr>
-                </table>
-                <!-- So do mang -->
-                <div class="card" id="network-diagram-card" style="display: none;">
-                    <div class="card-header">
-                        Sơ đồ hệ thống mạng
-                    </div>
-                    <div class="card-body" style="text-align: center;">
-                        <img src="cid:network_diagram" alt="Sơ đồ mạng" style="max-width: 100%; height: auto;">
-                    </div>
-                </div>
-                <!-- Analysis Card -->
-                <div class="card">
-                    <div class="card-header">
-                        Phân Tích Chi Tiết
-                    </div>
-                    <div class="card-body">
-                        {analysis_result}
-                    </div>
-                </div>
-            </td>
-        </tr>
+        <div class="content">
+            <p>Xin chào,</p>
+            <p>Dưới đây là kết quả phân tích log tự động từ <strong>{start_time}</strong> đến <strong>{end_time}</strong>.</p>
+            <p style="font-style: italic; color: #555; background: #fff3cd; padding: 10px; border-radius: 4px;">"{short_summary}"</p>
 
-        <!-- Footer -->
-        <tr>
-            <td class="footer">
-                <p>Đây là email được AI gửi tự động từ Hệ thống System AI Agent NOVAON.</p>
-            </td>
-        </tr>
-    </table>
+            <!-- Dynamic Metrics -->
+            <div class="metrics">
+                <div class="metric-box">
+                    <div class="metric-value">{stat_1_value}</div>
+                    <div class="metric-label">{stat_1_label}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-value">{stat_2_value}</div>
+                    <div class="metric-label">{stat_2_label}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-value">{stat_3_value}</div>
+                    <div class="metric-label">{stat_3_label}</div>
+                </div>
+            </div>
+
+            <div class="card" id="network-diagram-card" style="display: none;">
+                <div class="card-header">Sơ đồ hệ thống</div>
+                <div class="card-body" style="text-align: center;">
+                    <img src="cid:network_diagram" alt="Network Diagram">
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">Chi tiết Phân tích</div>
+                <div class="card-body">
+                    {analysis_result}
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Email tự động từ System AI Agent NOVAON.</p>
+        </div>
+    </div>
 </body>
 </html>

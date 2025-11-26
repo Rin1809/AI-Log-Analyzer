@@ -131,7 +131,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     substages = stage_config.get('substages', [])
     summary_conf = stage_config.get('summary_conf') or {}
     
-
     reduce_name = summary_conf.get('name') 
     if not reduce_name: reduce_name = f"{stage_name}_Reduce"
 
@@ -205,7 +204,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "content": chunk_str
                 })
         else:
-            # Not enough workers configured for chunks, ignore remainder
             pass 
 
     if not active_workers_payload:
@@ -242,11 +240,9 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             try:
                 data = future.result()
                 
-
                 worker_stats = utils.extract_json_from_text(data['result'])
                 worker_md = re.sub(r'```json\s*.*?\s*```', '', data['result'], flags=re.DOTALL | re.IGNORECASE).strip()
                 
-                # Use worker_name as the report_type so it shows up distinctly
                 worker_report_data = {
                     "hostname": hostname,
                     "worker_name": worker_name,
@@ -256,9 +252,8 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "summary_stats": worker_stats,
                     "analysis_details_markdown": worker_md,
                     "stage_index": 0,
-                    "report_type": worker_name # Use 'loc_log' or 'w1' etc.
+                    "report_type": worker_name
                 }
-                
 
                 report_generator.save_structured_report(host_section, worker_report_data, timezone, report_dir, worker_name)
                 
@@ -280,24 +275,18 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     # --- REDUCE STEP LOGIC ---
     final_markdown = ""
     final_stats = {}
-    final_report_type = stage_name # Default for single chunk
+    final_report_type = stage_name 
     
     if len(successful_results) == 1 and not failed_workers and not is_multi_worker_run:
-        # --- CASE 1: Single Chunk (< Chunk Size) ---
         logging.info(f"[{host_section}] Single chunk. No Reduce needed.")
         raw_text = successful_results[0]['result']
         final_stats = utils.extract_json_from_text(raw_text)
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
-        final_report_type = stage_name # e.g. "loc_log"
-        
-
-
+        final_report_type = stage_name 
     else:
-  
         logging.info(f"[{host_section}] >>> Running Reduce '{reduce_name}' for {len(successful_results)} results...")
         
         combined_inputs = []
-
         successful_results.sort(key=lambda x: x['worker'] != stage_name) 
 
         for res in successful_results:
@@ -325,7 +314,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     f"{host_section}_Reduce",
                     full_combined_text,
                     bonus_context_text,
-                    reduce_api_key, # Key 4
+                    reduce_api_key, 
                     reduce_prompt_file,
                     reduce_model,
                     key_alias=reduce_alias,
@@ -346,12 +335,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         else:
             final_stats = utils.extract_json_from_text(reduce_result)
             final_markdown = re.sub(r'```json\s*.*?\s*```', '', reduce_result, flags=re.DOTALL | re.IGNORECASE).strip()
-            
-            # Normalization
-            if "total_blocked_events" not in final_stats and "total_blocked_events_period" in final_stats:
-                final_stats["total_blocked_events"] = final_stats["total_blocked_events_period"]
-            if "alerts_count" not in final_stats and "total_alerts_period" in final_stats:
-                final_stats["alerts_count"] = final_stats["total_alerts_period"]
 
         # SAVE REDUCE REPORT
         final_report_type = reduce_name
@@ -374,15 +357,11 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
     # Finalize Timestamp
     state_manager.save_last_run_timestamp(candidate_timestamp, host_section, test_mode)
     
-    # --- EMAIL ---
+    # --- EMAIL SENDING (GENERIC MAPPING) ---
     recipient_emails = stage_config.get('recipient_emails', '')
     if recipient_emails:
-        # // Logic subject custom
         custom_subject = stage_config.get('email_subject', '').strip()
-        if custom_subject:
-             email_subject = f"{custom_subject} - {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        else:
-             email_subject = f"[{final_report_type}] {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        email_subject = f"{custom_subject if custom_subject else f'[{final_report_type}]'} - {hostname} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
@@ -396,13 +375,21 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                 else:
                      tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
                 
+                # --- MAPPING GENERIC METRICS ---
                 body = tpl.format(
-                    hostname=hostname, analysis_result=markdown.markdown(final_markdown),
-                    total_blocked=final_stats.get("total_blocked_events", "0"),
-                    top_ip=final_stats.get("top_blocked_source_ip", "N/A"),
-                    critical_alerts=final_stats.get("alerts_count", "0"),
-                    start_time=start_time.strftime('%H:%M %d-%m'), end_time=end_time.strftime('%H:%M %d-%m')
+                    hostname=hostname, 
+                    analysis_result=markdown.markdown(final_markdown),
+                    stat_1_label=final_stats.get("stat_1_label", "Metric 1"),
+                    stat_1_value=final_stats.get("stat_1_value", "N/A"),
+                    stat_2_label=final_stats.get("stat_2_label", "Metric 2"),
+                    stat_2_value=final_stats.get("stat_2_value", "N/A"),
+                    stat_3_label=final_stats.get("stat_3_label", "Metric 3"),
+                    stat_3_value=final_stats.get("stat_3_value", "N/A"),
+                    short_summary=final_stats.get("short_summary", "Không có tóm tắt"),
+                    start_time=start_time.strftime('%H:%M %d-%m'), 
+                    end_time=end_time.strftime('%H:%M %d-%m')
                 )
+                
                 atts = get_attachments(host_config, host_section, system_settings)
                 email_service.send_email(host_section, email_subject, body, smtp, recipient_emails, diag, atts, logo_path=logo_path)
             except Exception as e: logging.error(f"Email failed: {e}")
@@ -412,9 +399,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
 def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_config, prev_stage_config, main_raw_api_key, system_settings, test_mode=False):
 
     stage_name = stage_config.get('name', f'Stage_{current_stage_idx}')
-    
-
-    
     threshold = int(stage_config.get('trigger_threshold', 10))
     
     logging.info(f"[{host_section}] >>> Checking trigger for Stage {current_stage_idx} ({stage_name}). Need {threshold} reports.")
@@ -436,21 +420,15 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     for folder in possible_folders:
         search_pattern = os.path.join(host_report_dir, folder, "*", "*.json")
         found_files = glob.glob(search_pattern, recursive=True)
-        
         for p in found_files:
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     d = json.load(f)
-                    
-
                     r_type = d.get('report_type')
                     if r_type in [prev_stage_name, reduce_name]:
-                        if p not in valid_reports:
-                            valid_reports.append(p)
-                            
+                        if p not in valid_reports: valid_reports.append(p)
             except: pass
             
-    # Sort by time
     valid_reports.sort(key=os.path.getmtime, reverse=False)
 
     reports_to_process = valid_reports[:threshold]
@@ -487,7 +465,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     stage_key_raw = stage_config.get('gemini_api_key')
     final_key_raw = stage_key_raw if stage_key_raw and stage_key_raw.strip() else main_raw_api_key
-    
     final_api_key, key_alias = resolve_api_key_with_alias(final_key_raw, system_settings)
 
     result_raw = gemini_analyzer.analyze_with_gemini(
@@ -520,12 +497,8 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     recipients = stage_config.get('recipient_emails', '')
     if recipients:
-        # // Logic subject custom
         custom_subject = stage_config.get('email_subject', '').strip()
-        if custom_subject:
-             email_subject = f"{custom_subject} - {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
-        else:
-             email_subject = f"[{stage_name}] {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
+        email_subject = f"{custom_subject if custom_subject else f'[{stage_name}]'} - {hostname} - {datetime.now().strftime('%Y-%m-%d')}"
 
         smtp = get_smtp_config_for_stage(system_settings, host_config, host_section)
         if smtp:
@@ -540,12 +513,17 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                 else:
                      tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
 
-                issue = stats.get("most_frequent_issue") or stats.get("key_strategic_recommendation") or "N/A"
-                blocked = stats.get("total_blocked_events_period") or stats.get("total_critical_events_final") or "N/A"
-                
+                # --- MAPPING GENERIC METRICS FOR SUMMARY ---
                 body = tpl.format(
-                    hostname=hostname, analysis_result=markdown.markdown(result_md),
-                    total_blocked=blocked, top_issue=issue, critical_alerts="N/A",
+                    hostname=hostname, 
+                    analysis_result=markdown.markdown(result_md),
+                    stat_1_label=stats.get("stat_1_label", "Metric 1"),
+                    stat_1_value=stats.get("stat_1_value", "N/A"),
+                    stat_2_label=stats.get("stat_2_label", "Metric 2"),
+                    stat_2_value=stats.get("stat_2_value", "N/A"),
+                    stat_3_label=stats.get("stat_3_label", "Metric 3"),
+                    stat_3_value=stats.get("stat_3_value", "N/A"),
+                    short_summary=stats.get("short_summary", "Không có tóm tắt"),
                     start_time=start_time.strftime('%d-%m') if start_time else "?", 
                     end_time=end_time.strftime('%d-%m') if end_time else "?"
                 )
