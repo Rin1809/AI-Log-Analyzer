@@ -286,10 +286,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
         final_markdown = re.sub(r'```json\s*.*?\s*```', '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
         final_report_type = stage_name 
         
-        # // [FIX] Cap nhat lai file bao cao cua single worker de chua raw_log_count chinh xac
-        # Vi luc save o tren thread, ta da save roi, nhung de chac an cho logic Chart, ta save lai hoac dam bao
-        # file worker o tren da co raw_log_count. (Da them o dong 230)
-        
     else:
         logging.info(f"[{host_section}] >>> Running Reduce '{reduce_name}' for {len(successful_results)} results...")
         
@@ -428,6 +424,10 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     prev_stage_slug = report_generator.slugify(prev_stage_name)
     
     possible_folders = [prev_stage_slug]
+    
+    # // [FIX] Init reduce_name to None to avoid UnboundLocalError later
+    reduce_name = None 
+    
     if current_stage_idx == 1:
         prev_summary_conf = prev_stage_config.get('summary_conf') or {}
         reduce_name = prev_summary_conf.get('name') or f"{prev_stage_name}_Reduce"
@@ -443,9 +443,17 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                 with open(p, 'r', encoding='utf-8') as f:
                     d = json.load(f)
                     r_type = d.get('report_type')
-                    if r_type in [prev_stage_name, reduce_name]:
+                    
+                    # // [FIX] Updated check logic to handle reduce_name safely
+                    match_prev = (r_type == prev_stage_name)
+                    match_reduce = (reduce_name is not None and r_type == reduce_name)
+                    
+                    if match_prev or match_reduce:
                         if p not in valid_reports: valid_reports.append(p)
-            except: pass
+            except Exception as e: 
+                # // [FIX] Log error to help debug why file is skipped
+                logging.debug(f"[{host_section}] Error checking report {p}: {e}")
+                pass
             
     valid_reports.sort(key=os.path.getmtime, reverse=False)
 
@@ -555,9 +563,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                 else:
                      tpl = tpl.replace('id="network-diagram-card" style="display: none;"', 'id="network-diagram-card"')
 
-                # --- MAPPING GENERIC METRICS FOR SUMMARY ---
-                # Template Final may use different keys (security_trend, etc.), generic uses stat_1...
-                # We map stat_X to specific keys just in case the template uses them
                 body = tpl.format(
                     hostname=hostname, 
                     analysis_result=markdown.markdown(result_md),
@@ -570,7 +575,7 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     short_summary=stats.get("short_summary", "Không có tóm tắt"),
                     start_time=start_time.strftime('%d-%m') if start_time else "?", 
                     end_time=end_time.strftime('%d-%m') if end_time else "?",
-                    # Extra mapping for Final Template
+
                     security_trend=stats.get("stat_1_value", "N/A"),
                     key_recommendation=stats.get("stat_2_value", "N/A"),
                     total_events=stats.get("stat_3_value", "N/A")

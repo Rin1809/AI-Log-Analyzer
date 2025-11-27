@@ -315,7 +315,7 @@ const HostFormPage = () => {
             email_subject: '',
             email_template: '', // Default empty
             substages: [], 
-            summary_conf: {} 
+            summary_conf: { name: '', model: '', prompt_file: '', gemini_api_key: '' } // Fixed: init with empty strings
         };
         setPipeline([...pipeline, newStage]);
     };
@@ -456,7 +456,7 @@ const HostFormPage = () => {
     const createDefaultPipeline = (models) => {
         const defaultModel = Object.values(models)[0] || 'gemini-2.5-flash-lite';
         return [
-            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', email_subject: '', email_template: '', substages: [], summary_conf: {} },
+            { name: 'Periodic Scan', enabled: true, model: defaultModel, prompt_file: 'prompt_template.md', trigger_threshold: 1, gemini_api_key: '', email_subject: '', email_template: '', substages: [], summary_conf: { name: '', model: '', prompt_file: '', gemini_api_key: '' } },
             { name: 'Daily Summary', enabled: true, model: defaultModel, prompt_file: 'summary_prompt_template.md', trigger_threshold: 24, gemini_api_key: '', email_subject: '', email_template: '' },
         ];
     }

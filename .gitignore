@@ -25,7 +25,7 @@ backend/Bonus_context/pfsense.log
 
 .test_buffer_count_Firewall_*
 backend/test_reports/
-
+.env
 
 .*last_run_timestamp_*
 .*last_cycle_run_*
