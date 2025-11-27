@@ -1,3 +1,4 @@
+
 import os
 import json
 import logging
@@ -21,6 +22,7 @@ def save_structured_report(host_id, report_data, timezone_str, base_report_dir, 
         date_folder = now.strftime('%Y-%m-%d')
         time_filename = now.strftime('%H-%M-%S') + '.json'
         
+        # Folder thi dung slug cho an toan
         safe_stage_name = slugify(stage_name)
         
         host_specific_dir = os.path.join(base_report_dir, host_id)
@@ -30,7 +32,8 @@ def save_structured_report(host_id, report_data, timezone_str, base_report_dir, 
         
         report_file_path = os.path.join(report_folder_path, time_filename)
 
-        report_data['report_type'] = safe_stage_name
+
+        report_data['report_type'] = stage_name
 
         with open(report_file_path, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=4)

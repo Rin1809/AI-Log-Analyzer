@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { 
     Box, 
@@ -42,8 +43,10 @@ const ITEMS_PER_PAGE = 5;
 const PieChartDisplay = ({ data }) => {
     const [currentPage, setCurrentPage] = useState(0);
     const textColor = useColorModeValue('gray.600', 'gray.400');
-    const tooltipBg = useColorModeValue('white', 'gray.800');
-    const borderColor = useColorModeValue('gray.200', 'gray.600');
+    // // Fix: Explicit styles for Tooltip container
+    const tooltipBg = useColorModeValue('white', '#1A202C'); // Gray.900 for dark mode
+    const tooltipBorder = useColorModeValue('#E2E8F0', '#4A5568');
+    const tooltipText = useColorModeValue('#2D3748', '#E2E8F0');
 
     if (!data || data.length === 0) {
         return <Center h="100%"><Text color="gray.500">No data to display.</Text></Center>;
@@ -85,14 +88,18 @@ const PieChartDisplay = ({ data }) => {
                             ))}
                         </Pie>
                         <Tooltip 
-                            contentStyle={{ backgroundColor: tooltipBg, borderRadius: '8px', border: `1px solid ${borderColor}` }}
-                            itemStyle={{ color: textColor }}
+                            contentStyle={{ 
+                                backgroundColor: tooltipBg, 
+                                borderRadius: '8px', 
+                                border: `1px solid ${tooltipBorder}`,
+                                color: tooltipText
+                            }}
+                            itemStyle={{ color: tooltipText }}
                         />
                     </PieChart>
                 </ResponsiveContainer>
             </Box>
 
-     
             <VStack 
                 w={{ base: '100%', md: '50%' }} 
                 align="stretch" 
@@ -125,7 +132,7 @@ const PieChartDisplay = ({ data }) => {
                 <Spacer />
                 
                 {totalPages > 1 && (
-                    <Flex justify="flex-end" align="center" pt={2} borderTop="1px dashed" borderColor={borderColor}>
+                    <Flex justify="flex-end" align="center" pt={2} borderTop="1px dashed" borderColor={tooltipBorder}>
                         <Text fontSize="10px" color="gray.500" mr={2}>
                             Page {currentPage + 1}/{totalPages}
                         </Text>

@@ -1,3 +1,4 @@
+
 import os
 import smtplib
 import logging
@@ -253,7 +254,6 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
                     "analysis_details_markdown": worker_md,
                     "stage_index": 0,
                     "report_type": worker_name,
-                    # // [FIX] QUAN TRONG: Luu raw_log_count cho cac report con de debug
                     "raw_log_count": log_count if not is_multi_worker_run else 0 
                 }
 
@@ -346,7 +346,7 @@ def run_pipeline_stage_0(host_config, host_section, stage_config, main_raw_api_k
             "analysis_start_time": start_time.isoformat(),
             "analysis_end_time": end_time.isoformat(),
             "report_generated_time": datetime.now(pytz.timezone(timezone)).isoformat(),
-            "raw_log_count": log_count, # // [FIX] QUAN TRONG: Luu so luong log goc
+            "raw_log_count": log_count, 
             "summary_stats": final_stats,
             "analysis_details_markdown": final_markdown,
             "stage_index": 0,
@@ -425,7 +425,6 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
     
     possible_folders = [prev_stage_slug]
     
-    # // [FIX] Init reduce_name to None to avoid UnboundLocalError later
     reduce_name = None 
     
     if current_stage_idx == 1:
@@ -435,6 +434,12 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
 
     valid_reports = []
     
+    def is_match(json_type, config_name):
+        if not json_type or not config_name: return False
+        if json_type == config_name: return True
+        if json_type == report_generator.slugify(config_name): return True
+        return False
+
     for folder in possible_folders:
         search_pattern = os.path.join(host_report_dir, folder, "*", "*.json")
         found_files = glob.glob(search_pattern, recursive=True)
@@ -444,14 +449,13 @@ def run_pipeline_stage_n(host_config, host_section, current_stage_idx, stage_con
                     d = json.load(f)
                     r_type = d.get('report_type')
                     
-                    # // [FIX] Updated check logic to handle reduce_name safely
-                    match_prev = (r_type == prev_stage_name)
-                    match_reduce = (reduce_name is not None and r_type == reduce_name)
+                    # [FIX] Use robust comparison
+                    match_prev = is_match(r_type, prev_stage_name)
+                    match_reduce = is_match(r_type, reduce_name) if reduce_name else False
                     
                     if match_prev or match_reduce:
                         if p not in valid_reports: valid_reports.append(p)
             except Exception as e: 
-                # // [FIX] Log error to help debug why file is skipped
                 logging.debug(f"[{host_section}] Error checking report {p}: {e}")
                 pass
             

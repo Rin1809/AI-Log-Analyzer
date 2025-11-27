@@ -1,3 +1,4 @@
+
 import os
 import logging
 import time
@@ -124,11 +125,12 @@ def analyze_with_gemini(host_id, content, bonus_context, api_key, prompt_file, m
                 try:
                     text_response = response.text
                 except ValueError:
-                    # Thuong do bi block hoac empty candidates
                     finish_reason = "UNKNOWN"
                     try:
-                        if response.candidates and response.candidates[0].finish_reason:
-                            finish_reason = response.candidates[0].finish_reason.name
+                        # Safety check cho candidates
+                        if hasattr(response, 'candidates') and response.candidates:
+                            if hasattr(response.candidates[0], 'finish_reason'):
+                                finish_reason = response.candidates[0].finish_reason.name
                     except: pass
                     
                     return f"Fatal Gemini Error: Gemini blocked response. Reason: {finish_reason}"
